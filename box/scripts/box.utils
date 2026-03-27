@@ -1,0 +1,114 @@
+#!/system/bin/sh
+
+ssid() {
+    if connected; then
+        local ssid_name
+        ssid_name=$(dumpsys wifi | grep mWifiInfo | head -n 1 | cut -d '"' -f 2)
+        if [ -n "$(printf '%s' "${ssid_name}" | grep '<unknown ssid>')" ]; then
+            printf '%s' '<unknown ssid>'
+            return
+        fi
+        printf '%s' "${ssid_name}"
+    else
+        printf '%s' '<unknown ssid>'
+        return 1
+    fi
+}
+
+connected() {
+    if [ -z "$(cat /data/misc/net/rt_tables | grep wlan)" ]; then
+        return 1
+    fi
+}
+
+status() {
+    curl "127.0.0.1:${clash_api_port}/configs" > /dev/null 2>&1
+    if ! [ $? = 0 ]; then
+        return 1
+    fi
+    return
+}
+
+getPort() {
+    printf '%s' "${clash_api_port}"
+}
+
+getSecret() {
+    printf '%s' "${clash_api_secret}"
+}
+
+stop_core() {
+    ${scripts_dir}/box.service stop >> /dev/null 2>> ${run_path}/run.log
+}
+
+start_core() {
+    ${scripts_dir}/box.service start >> /dev/null 2>> ${run_path}/run.log
+}
+
+setOutbound() {
+    if [ -z "$1" ] || [ -z "$2" ]; then
+        return 1
+    fi
+
+    local secret
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl -X PUT "127.0.0.1:$(getPort)/proxies/$1" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d '{"name": "'$2'"}'
+        return
+    fi
+
+    curl -X PUT "127.0.0.1:$(getPort)/proxies/$1" -H 'Content-Type: application/json' -d '{"name": "'$2'"}'
+}
+
+setMode() {
+    if [ -z "$1" ]; then
+        return 1
+    fi
+
+    local secret
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl -X PATCH "127.0.0.1:$(getPort)/configs" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d '{"mode": "'$1'"}'
+        return
+    fi
+
+    curl -X PATCH "127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' -d '{"mode": "'$1'"}'
+}
+
+getTarget() {
+    local mapping="$1"
+    local key="$2"
+    printf '%s' "${mapping}" | tr ';' '\n' | awk -F ',' -v target="${key}" '$1==target {print $2; exit}'
+}
+
+getKeyValue() {
+    if [ -z "$1" ]; then
+        return
+    fi
+
+    local key="$1"
+    read -r line
+    printf '%s' "$line" | grep -E -o '"'${key}'" *: *[0-9]*|"'${key}'" *: *"[^"]+"|"'${key}'" *: *true|"'${key}'" *: *false|"'${key}'" *: *null' | awk -F '(: ?)' '{gsub(/^"|"$/, "", $2); print $2}'
+}
+
+getNowOutbound() {
+    local secret
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl "127.0.0.1:$(getPort)/proxies/${select_outbound}" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue now
+        return
+    fi
+
+    curl "127.0.0.1:$(getPort)/proxies/${select_outbound}" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue now
+}
+
+getNowMode() {
+    local secret
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl "127.0.0.1:$(getPort)/configs" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue mode
+        return
+    fi
+
+    curl "127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue mode
+}

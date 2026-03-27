@@ -1,0 +1,274 @@
+#!/system/bin/sh
+
+export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH:/data/data/com.termux/files/usr/bin"
+
+module_dir="/data/adb/modules/mono_box"
+[ -n "$(magisk -v | grep lite)" ] && module_dir=/data/adb/lite_modules/mono_box
+
+scripts=$(realpath "$0")
+scripts_dir=$(dirname "${scripts}")
+
+source "${scripts_dir}/box.config"
+source "${scripts_dir}/box.utils"
+
+service_path="${scripts_dir}/box.service"
+run_log="${run_path}/run.log"
+last_outbound_file="${run_path}/.lastOutbound"
+last_clash_mode_file="${run_path}/.lastClashMode"
+
+is_manual_mode() {
+    [ -f "${box_path}/manual" ]
+}
+
+is_module_disabled() {
+    [ -f "${module_dir}/disable" ]
+}
+
+ensure_runtime_dir() {
+    mkdir -p "${run_path}"
+}
+
+normalize_ctr_mode() {
+    case "${ctr_mode}" in
+        disable | switch | selector | mode) ;;
+        *)
+            ctr_mode="disable"
+            ;;
+    esac
+}
+
+wait_until_login() {
+    local test_file="/sdcard/Android/.BOX4TEST"
+
+    true > "${test_file}"
+    while [ ! -f "${test_file}" ]; do
+        true > "${test_file}"
+        sleep 1
+    done
+    rm -f "${test_file}"
+
+    while [ ! -f "/data/system/packages.xml" ]; do
+        sleep 1
+    done
+}
+
+boot_start() {
+    wait_until_login
+
+    rm -f "${pid_file}"
+    ensure_runtime_dir
+
+    if is_manual_mode || is_module_disabled; then
+        return 0
+    fi
+
+    mv "${run_path}/run.log" "${run_path}/run.log.bak" > /dev/null 2>&1 || true
+    "${service_path}" start >> /dev/null 2>> "${run_log}"
+}
+
+handle_module_toggle_event() {
+    local events="$1"
+    local monitor_file="$2"
+
+    is_manual_mode && return 0
+    [ "${monitor_file}" = "disable" ] || return 0
+
+    case "${events}" in
+        d)
+            "${service_path}" start >> /dev/null 2>> "${run_log}"
+            ;;
+        n)
+            "${service_path}" stop >> /dev/null 2>> "${run_log}"
+            ;;
+    esac
+}
+
+load_last_policy_state_files() {
+    Outbound=""
+    ClashMode=""
+
+    [ -f "${last_outbound_file}" ] && Outbound="$(cat "${last_outbound_file}")"
+    [ -f "${last_clash_mode_file}" ] && ClashMode="$(cat "${last_clash_mode_file}")"
+}
+
+get_network_state() {
+    if connected; then
+        printf '%s' "wifi"
+        return 0
+    fi
+
+    printf '%s' "cellular"
+    return 0
+}
+
+choose_selector_target() {
+    local network_state="$1"
+
+    if [ "${network_state}" = "cellular" ]; then
+        if [ -n "${proxy_outbound}" ]; then
+            printf '%s' "${proxy_outbound}"
+            return 0
+        fi
+
+        if [ -n "${Outbound}" ]; then
+            printf '%s' "${Outbound}"
+            return 0
+        fi
+
+        printf '%s' "${default_outbound}"
+        return 0
+    fi
+
+    if [ "${use_custom_direct}" = "true" ]; then
+        local ssid_name
+        local mapped
+        ssid_name=$(ssid)
+        mapped=$(getTarget "${direct_outbound_list}" "${ssid_name}")
+        if [ -n "${mapped}" ]; then
+            printf '%s' "${mapped}"
+            return 0
+        fi
+    fi
+
+    printf '%s' "${direct_outbound}"
+    return 0
+}
+
+choose_clash_mode_target() {
+    local network_state="$1"
+
+    if [ "${network_state}" = "cellular" ]; then
+        if [ -n "${proxy_clash_mode}" ]; then
+            printf '%s' "${proxy_clash_mode}"
+            return 0
+        fi
+
+        if [ -n "${ClashMode}" ]; then
+            printf '%s' "${ClashMode}"
+            return 0
+        fi
+
+        printf '%s' "${default_clash_mode}"
+        return 0
+    fi
+
+    if [ "${use_custom_direct}" = "true" ]; then
+        local ssid_name
+        local mapped
+        ssid_name=$(ssid)
+        mapped=$(getTarget "${direct_clash_mode_list}" "${ssid_name}")
+        if [ -n "${mapped}" ]; then
+            printf '%s' "${mapped}"
+            return 0
+        fi
+    fi
+
+    printf '%s' "${direct_clash_mode}"
+    return 0
+}
+
+apply_switch_policy() {
+    local network_state="$1"
+
+    if [ "${network_state}" = "cellular" ]; then
+        status || start_core
+    else
+        status && stop_core
+    fi
+}
+
+apply_selector_policy() {
+    local network_state="$1"
+    local target
+
+    status || return 0
+    [ -n "${select_outbound}" ] || return 0
+
+    target=$(choose_selector_target "${network_state}")
+    [ -n "${target}" ] || return 0
+
+    if [ "${network_state}" = "wifi" ]; then
+        getNowOutbound > "${last_outbound_file}" 2> /dev/null
+    fi
+
+    setOutbound "${select_outbound}" "${target}" > /dev/null 2>&1
+}
+
+apply_clash_mode_policy() {
+    local network_state="$1"
+    local target
+
+    status || return 0
+    target=$(choose_clash_mode_target "${network_state}")
+    [ -n "${target}" ] || return 0
+
+    if [ "${network_state}" = "wifi" ]; then
+        getNowMode > "${last_clash_mode_file}" 2> /dev/null
+    fi
+
+    setMode "${target}" > /dev/null 2>&1
+}
+
+is_network_event_relevant() {
+    local events="$1"
+    local monitor_dir="$2"
+    local monitor_file="$3"
+
+    [ "${events}" = "w" ] || return 1
+
+    if [ "${monitor_file}" = "rt_tables" ] || [ "${monitor_dir}" = "/data/misc/net/rt_tables" ]; then
+        return 0
+    fi
+
+    return 1
+}
+
+handle_network_policy_event() {
+    local events="$1"
+    local monitor_dir="$2"
+    local monitor_file="$3"
+    local network_state
+
+    is_network_event_relevant "${events}" "${monitor_dir}" "${monitor_file}" || return 0
+    is_module_disabled && return 0
+    [ "${ctr_mode}" = "disable" ] && return 0
+
+    load_last_policy_state_files
+    network_state=$(get_network_state)
+
+    case "${ctr_mode}" in
+        switch)
+            apply_switch_policy "${network_state}"
+            ;;
+        selector)
+            apply_selector_policy "${network_state}"
+            ;;
+        mode)
+            apply_clash_mode_policy "${network_state}"
+            ;;
+        *) ;;
+    esac
+}
+
+main() {
+    local command="$1"
+
+    normalize_ctr_mode
+    ensure_runtime_dir
+
+    if [ "${command}" = "boot" ]; then
+        boot_start
+        return 0
+    fi
+
+    local events="$1"
+    local monitor_dir="$2"
+    local monitor_file="$3"
+
+    [ -z "${events}" ] && return 0
+
+    handle_module_toggle_event "${events}" "${monitor_file}"
+    handle_network_policy_event "${events}" "${monitor_dir}" "${monitor_file}"
+}
+
+main "$@"

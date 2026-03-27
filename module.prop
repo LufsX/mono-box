@@ -1,7 +1,7 @@
-id=box4
-name=box4magisk
-version=v5.2pre
-versionCode=2025010509
-author=CHIZI-0618
-description=Use sing-box, clash, v2ray, xray tunnel proxy on Android devices.
-updateJson=https://raw.githubusercontent.com/CHIZI-0618/box4magisk/main/box4.json
+id=mono_box
+name=Mono Box
+version=v6.0
+versionCode=2026032700
+author=LufsX, CHIZI-0618
+description=Use mihomo on Android devices.
+updateJson=https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json
