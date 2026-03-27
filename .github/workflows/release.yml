@@ -49,8 +49,8 @@ jobs:
           fi
 
           ZIP_NAME="MonoBox_${VERSION}.zip"
-          ZIP_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${ZIP_NAME}"
-          CHANGELOG_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/changelog.md"
+          ZIP_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${ZIP_NAME}"
+          CHANGELOG_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/changelog.md"
 
           {
             echo "version=${VERSION}"
