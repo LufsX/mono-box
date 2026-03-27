@@ -26,6 +26,15 @@ jobs:
           UPDATE_JSON_URL="$(awk -F '=' '/^updateJson=/{print $2}' module.prop)"
           TAG_NAME="${GITHUB_REF_NAME}"
 
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            TAG_NAME="$(git tag --sort=-v:refname | grep '^v' | head -n 1 || true)"
+            if [ -z "${TAG_NAME}" ]; then
+              echo "No v* tag found, cannot run release from main"
+              exit 1
+            fi
+            echo "Running on main, resolved latest tag: ${TAG_NAME}"
+          fi
+
           if [ "${VERSION}" != "${TAG_NAME}" ]; then
             echo "module.prop version (${VERSION}) must match tag (${TAG_NAME})"
             exit 1
@@ -102,7 +111,7 @@ jobs:
       - name: Upload release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.meta.outputs.tag_name }}
           files: |
             ${{ steps.meta.outputs.zip_name }}
             changelog.md
