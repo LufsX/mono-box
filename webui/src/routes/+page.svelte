@@ -17,9 +17,6 @@
   const clashApi = dev ? clashMockApi : clashRealApi;
   const actionApi = dev ? actionMockApi : actionRealApi;
 
-  // Keep startup mask one-time per app runtime; returning to this route won't show it again.
-  let hasShownInitialLoading = false;
-
   let proxyMode = $state("rule");
   let tunEnabled = $state(false);
   let coreConfig = $state<any>(null);
@@ -27,7 +24,6 @@
 
   type LogType = "info" | "success" | "error" | "cmd";
   let logs = $state<{ time: string; msg: string; type: LogType }[]>([]);
-  let initialLoading = $state(!dev && !hasShownInitialLoading);
 
   function addLog(msg: string, type: LogType = "info") {
     if (!msg) return;
@@ -147,13 +143,6 @@
     }
   }
 
-  function hideInitialLoadingWithDelay() {
-    setTimeout(() => {
-      initialLoading = false;
-      hasShownInitialLoading = true;
-    }, 200);
-  }
-
   onMount(() => {
     (async () => {
       try {
@@ -163,10 +152,8 @@
         await execute("status");
         await fetchStatus();
 
-        hideInitialLoadingWithDelay();
       } catch (e) {
         console.error("Initialization error:", e);
-        hideInitialLoadingWithDelay();
       }
     })();
   });
@@ -199,12 +186,3 @@
     <LogTerminal bind:logs />
   </div>
 </main>
-
-{#if initialLoading}
-  <div class="fixed inset-0 z-100 flex items-center justify-center bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm transition-opacity duration-300">
-    <div class="text-slate-500 dark:text-zinc-400 font-mono text-sm tracking-widest animate-pulse flex flex-col items-center gap-3">
-      <div class="animate-spin">⟳</div>
-      LOADING CORE STATUS
-    </div>
-  </div>
-{/if}
