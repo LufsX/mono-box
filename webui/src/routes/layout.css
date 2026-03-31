@@ -3,11 +3,67 @@
 @variant dark (&:where(.dark, .dark *));
 
 @layer base {
+  html,
   body {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    box-sizing: border-box;
     padding-top: var(--ksu-insets-top, 0px);
     padding-right: var(--ksu-insets-right, 0px);
     padding-bottom: var(--ksu-insets-bottom, 0px);
     padding-left: var(--ksu-insets-left, 0px);
     @apply bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-slate-100;
+  }
+}
+
+@layer components {
+  .app-shell {
+    --shell-gap-top: 0.75rem;
+    --shell-gap-bottom: 1rem;
+    --app-topbar-base-height: 3.5rem;
+    --app-bottombar-base-height: 4rem;
+    --app-topbar-safe: max(var(--ksu-insets-top, 0px), env(safe-area-inset-top, 0px));
+    --app-bottombar-safe: max(var(--ksu-insets-bottom, 0px), env(safe-area-inset-bottom, 0px));
+    --app-topbar-height: calc(var(--app-topbar-base-height) + var(--app-topbar-safe));
+    --app-bottombar-height: calc(var(--app-bottombar-base-height) + var(--app-bottombar-safe));
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    display: grid;
+    grid-template-rows: 1fr;
+  }
+
+  .app-scroll {
+    box-sizing: border-box;
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+    overscroll-behavior-x: none;
+    padding-top: calc(var(--app-topbar-height) + var(--shell-gap-top));
+    padding-bottom: calc(var(--app-bottombar-height) + var(--shell-gap-bottom) + 0.5rem);
+    scroll-padding-top: calc(var(--app-topbar-height) + var(--shell-gap-top) + 0.25rem);
+    scroll-padding-bottom: calc(var(--app-bottombar-height) + var(--shell-gap-bottom) + 1rem);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
+  }
+
+  .app-bottombar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 40;
   }
 }

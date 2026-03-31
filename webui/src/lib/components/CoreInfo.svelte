@@ -1,13 +1,15 @@
 <script lang="ts">
   let { config }: { config: any } = $props();
 
-  const ports = $derived([
-    { label: "HTTP PORT", key: "port" },
-    { label: "SOCKS PORT", key: "socks-port" },
-    { label: "MIXED PORT", key: "mixed-port" },
-    { label: "REDIR PORT", key: "redir-port" },
-    { label: "TPROXY PORT", key: "tproxy-port" }
-  ].filter(p => config[p.key] && config[p.key] !== 0));
+  const ports = $derived(
+    [
+      { label: "HTTP PORT", key: "port" },
+      { label: "SOCKS PORT", key: "socks-port" },
+      { label: "MIXED PORT", key: "mixed-port" },
+      { label: "REDIR PORT", key: "redir-port" },
+      { label: "TPROXY PORT", key: "tproxy-port" },
+    ].filter((p) => config[p.key] && config[p.key] !== 0),
+  );
 </script>
 
 <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">

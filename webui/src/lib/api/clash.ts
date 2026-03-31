@@ -17,7 +17,67 @@ export interface TrafficData {
   downTotal: number;
 }
 
+export interface BoxConfigValues {
+  clashApiPort: number;
+  clashApiSecret: string;
+}
+
 let cachedConfig: ClashConfig | null = null;
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return String(error);
+}
+
+function formatExecFailure(action: string, result: { errno: number; stdout?: string; stderr?: string }): string {
+  const details = [result.stderr, result.stdout]
+    .filter((part) => typeof part === "string" && part.trim().length > 0)
+    .join("\n")
+    .trim();
+
+  return details ? `${action} failed (errno=${result.errno}): ${details}` : `${action} failed (errno=${result.errno})`;
+}
+
+function toBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}
+
+function parseBoxConfigContent(content: string): BoxConfigValues {
+  const portMatch = content.match(/^clash_api_port=(\d+)\s*$/m);
+  const secretMatch = content.match(/^clash_api_secret=(.*)$/m);
+
+  return {
+    clashApiPort: portMatch ? parseInt(portMatch[1], 10) : 9090,
+    clashApiSecret: secretMatch ? secretMatch[1].trim() : "",
+  };
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function upsertConfigValue(content: string, key: string, value: string): string {
+  const line = `${key}=${value}`;
+  const regex = new RegExp(`^${escapeRegExp(key)}=.*$`, "m");
+
+  if (regex.test(content)) {
+    return content.replace(regex, line);
+  }
+
+  const suffix = content.endsWith("\n") || content.length === 0 ? "" : "\n";
+  return `${content}${suffix}${line}\n`;
+}
+
+export function parseBoxConfig(content: string): BoxConfigValues {
+  return parseBoxConfigContent(content);
+}
 
 /**
  * 从 box.config 文件读取 Clash API 配置
@@ -31,24 +91,15 @@ async function getClashConfig(): Promise<ClashConfig> {
   // 从 box.config 读取
   try {
     const result = await exec("su -c 'cat /data/adb/box/scripts/box.config'", {
-      cwd: "/data/adb/box"
+      cwd: "/data/adb/box",
     });
 
     if (result.errno !== 0 || !result.stdout) {
       throw new Error("Failed to read config file");
     }
 
-    const content = result.stdout;
-    
-    // 解析 clash_api_port
-    const portMatch = content.match(/clash_api_port=(\d+)/);
-    const port = portMatch ? parseInt(portMatch[1], 10) : 9090;
-
-    // 解析 clash_api_secret
-    const secretMatch = content.match(/clash_api_secret=(.+)/);
-    const secret = secretMatch ? secretMatch[1].trim() : "";
-
-    cachedConfig = { port, secret };
+    const parsed = parseBoxConfigContent(result.stdout);
+    cachedConfig = { port: parsed.clashApiPort, secret: parsed.clashApiSecret };
     return cachedConfig;
   } catch (e) {
     console.error("Failed to get clash config:", e);
@@ -60,16 +111,12 @@ async function getClashConfig(): Promise<ClashConfig> {
 /**
  * 发送请求到 Clash API
  */
-async function clashRequest<T = any>(
-  method: string,
-  path: string,
-  data?: any
-): Promise<T> {
+async function clashRequest<T = any>(method: string, path: string, data?: any): Promise<T> {
   const config = await getClashConfig();
   const url = `http://127.0.0.1:${config.port}${path}`;
 
   const headers: Record<string, string> = {
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
   };
 
   if (config.secret) {
@@ -78,7 +125,7 @@ async function clashRequest<T = any>(
 
   const options: RequestInit = {
     method,
-    headers
+    headers,
   };
 
   if (data) {
@@ -89,7 +136,7 @@ async function clashRequest<T = any>(
 
   // 如果响应为空，返回 null
   const text = await response.text();
-  
+
   if (!response.ok) {
     // 尝试解析错误消息
     if (text) {
@@ -146,10 +193,7 @@ export async function upgradeCore(): Promise<any> {
 /**
  * 创建内存监控 WebSocket 连接
  */
-export async function createMemoryWebSocket(
-  onMessage: (data: MemoryData) => void,
-  onError?: (error: Event) => void
-): Promise<WebSocket> {
+export async function createMemoryWebSocket(onMessage: (data: MemoryData) => void, onError?: (error: Event) => void): Promise<WebSocket> {
   const config = await getClashConfig();
   const token = config.secret || "1145141919810";
   const url = `ws://127.0.0.1:${config.port}/memory?token=${token}`;
@@ -176,10 +220,7 @@ export async function createMemoryWebSocket(
 /**
  * 创建流量监控 WebSocket 连接
  */
-export async function createTrafficWebSocket(
-  onMessage: (data: TrafficData) => void,
-  onError?: (error: Event) => void
-): Promise<WebSocket> {
+export async function createTrafficWebSocket(onMessage: (data: TrafficData) => void, onError?: (error: Event) => void): Promise<WebSocket> {
   const config = await getClashConfig();
   const token = config.secret || "1145141919810";
   const url = `ws://127.0.0.1:${config.port}/traffic?token=${token}`;
@@ -224,7 +265,7 @@ export async function checkStatus(): Promise<boolean> {
   try {
     await getConfigs();
     return true;
-  } catch (e) {
+  } catch {
     return false;
   }
 }
@@ -242,17 +283,21 @@ export function clearConfigCache(): void {
 export async function readBoxConfig(): Promise<string> {
   try {
     const result = await exec("su -c 'cat /data/adb/box/scripts/box.config'", {
-      cwd: "/data/adb/box"
+      cwd: "/data/adb/box",
     });
 
-    if (result.errno !== 0 || !result.stdout) {
-      throw new Error("Failed to read box.config file");
+    if (result.errno !== 0) {
+      throw new Error(formatExecFailure("Read box.config", result));
+    }
+
+    if (!result.stdout) {
+      throw new Error("Read box.config failed: empty file content");
     }
 
     return result.stdout;
   } catch (e) {
     console.error("Failed to read box.config:", e);
-    throw e;
+    throw new Error(getErrorMessage(e));
   }
 }
 
@@ -261,40 +306,43 @@ export async function readBoxConfig(): Promise<string> {
  */
 export async function writeBoxConfig(content: string): Promise<void> {
   try {
-    // 转义单引号和特殊字符
-    const escapedContent = content.replace(/'/g, "'\\''");
-    
-    const result = await exec(
-      `su -c 'echo '${escapedContent}' > /data/adb/box/scripts/box.config'`,
-      { cwd: "/data/adb/box" }
-    );
+    const normalizedContent = content.replace(/\r\n/g, "\n");
+    const base64Content = toBase64Utf8(normalizedContent);
+    let marker = "__MONO_BOX_B64_EOF__";
+    while (base64Content.includes(marker)) {
+      marker = `${marker}_X`;
+    }
+
+    const command = `su -c 'if command -v base64 >/dev/null 2>&1; then base64 -d; else busybox base64 -d; fi > /data/adb/box/scripts/box.config <<"${marker}"\n${base64Content}\n${marker}'`;
+    const result = await exec(command, { cwd: "/data/adb/box" });
 
     if (result.errno !== 0) {
-      throw new Error("Failed to write box.config file");
+      throw new Error(formatExecFailure("Write box.config", result));
     }
 
     // 清除缓存，强制重新读取
     clearConfigCache();
   } catch (e) {
     console.error("Failed to write box.config:", e);
-    throw e;
+    throw new Error(getErrorMessage(e));
   }
 }
 
 /**
- * 更新 box.config 中的特定配置项
+ * 批量更新 box.config 中的配置项
  */
-export async function updateBoxConfigValue(key: string, value: string): Promise<void> {
+export async function updateBoxConfigValues(updates: Record<string, string>): Promise<void> {
   try {
-    const content = await readBoxConfig();
-    
-    // 使用正则表达式替换配置项
-    const regex = new RegExp(`^(${key}=).*$`, 'm');
-    const newContent = content.replace(regex, `$1${value}`);
-    
-    await writeBoxConfig(newContent);
+    let content = await readBoxConfig();
+
+    for (const [key, value] of Object.entries(updates)) {
+      content = upsertConfigValue(content, key, value);
+    }
+
+    await writeBoxConfig(content);
   } catch (e) {
-    console.error(`Failed to update ${key}:`, e);
-    throw e;
+    console.error("Failed to update box.config values:", e);
+    throw new Error(getErrorMessage(e));
   }
 }
+

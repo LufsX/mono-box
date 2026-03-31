@@ -1,5 +1,5 @@
 <script lang="ts">
-  let { enabled = $bindable(), onSwitch }: { enabled: boolean; onSwitch: (enable: boolean) => void } = $props();
+  let { enabled = $bindable(), onSwitch }: { enabled: boolean; onSwitch: (enable: boolean | "upgrade") => void } = $props();
 </script>
 
 <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
@@ -35,7 +35,7 @@
       </div>
       <button
         class="border border-slate-300 dark:border-zinc-700 px-4 py-1.5 text-sm font-bold hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors text-slate-800 dark:text-slate-200 active:bg-slate-200"
-        onclick={() => onSwitch("upgrade")}>立即拉取</button
+        onclick={() => onSwitch("upgrade")}>立即更新</button
       >
     </div>
   </div>

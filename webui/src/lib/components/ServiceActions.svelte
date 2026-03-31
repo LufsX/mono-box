@@ -5,7 +5,7 @@
     { id: "start", label: "启动" },
     { id: "stop", label: "停止" },
     { id: "restart", label: "重启" },
-    { id: "status", label: "状态" }
+    { id: "status", label: "状态" },
   ];
 </script>
 

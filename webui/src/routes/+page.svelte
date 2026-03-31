@@ -3,7 +3,6 @@
   import { onMount } from "svelte";
   import { dev } from "$app/environment";
   import * as clashApi from "$lib/api/clash";
-  import TopNav from "$lib/components/TopNav.svelte";
   import CoreInfo from "$lib/components/CoreInfo.svelte";
   import TunControl from "$lib/components/TunControl.svelte";
   import ServiceActions from "$lib/components/ServiceActions.svelte";
@@ -131,27 +130,37 @@
     }
   }
 
-  onMount(async () => {
-    try {
-      if (typeof enableEdgeToEdge === "function") {
-        enableEdgeToEdge(true);
+  onMount(() => {
+    const refreshListener = () => {
+      void handleRefresh();
+    };
+
+    window.addEventListener("mono-box:refresh-request", refreshListener);
+
+    (async () => {
+      try {
+        if (typeof enableEdgeToEdge === "function") {
+          enableEdgeToEdge(true);
+        }
+
+        addLog("Initializing WebUI...", "info");
+        await execute("status");
+        await fetchStatus();
+
+        initialLoading = false;
+      } catch (e) {
+        console.error("Initialization error:", e);
+        initialLoading = false;
       }
+    })();
 
-      addLog("Initializing WebUI...", "info");
-      await execute("status");
-      await fetchStatus();
-
-      initialLoading = false;
-    } catch (e) {
-      console.error("Initialization error:", e);
-      initialLoading = false;
-    }
+    return () => {
+      window.removeEventListener("mono-box:refresh-request", refreshListener);
+    };
   });
 </script>
 
-<TopNav onRefresh={handleRefresh} />
-
-<main class="max-w-3xl mx-auto px-4 py-6 min-h-screen flex flex-col gap-6">
+<main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
   <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} />
 
   <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />

@@ -7,7 +7,7 @@
   let downloadSpeed = $state<number | null>(null);
   let uploadTotal = $state<number | null>(null);
   let downloadTotal = $state<number | null>(null);
-  
+
   let memoryWs: WebSocket | null = null;
   let trafficWs: WebSocket | null = null;
   let reconnectTimeout: number | null = null;
@@ -38,7 +38,7 @@
         () => {
           console.error("Memory WebSocket error, reconnecting...");
           scheduleReconnect();
-        }
+        },
       );
 
       memoryWs.onclose = () => {
@@ -57,7 +57,7 @@
         () => {
           console.error("Traffic WebSocket error, reconnecting...");
           scheduleReconnect();
-        }
+        },
       );
 
       trafficWs.onclose = () => {
@@ -72,7 +72,7 @@
 
   function scheduleReconnect() {
     if (reconnectTimeout) return;
-    
+
     reconnectTimeout = window.setTimeout(() => {
       reconnectTimeout = null;
       closeWebSockets();
@@ -130,7 +130,7 @@
         </span>
       </div>
     </div>
-    
+
     <!-- 累计流量 -->
     {#if uploadTotal !== null || downloadTotal !== null}
       <div class="h-px bg-slate-200 dark:bg-zinc-800 w-full"></div>

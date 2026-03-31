@@ -6,12 +6,22 @@
 
   let currentPath = $derived(page.url.pathname);
 
+  async function handleTopNavRefresh() {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent("mono-box:refresh-request"));
+  }
+
   let { children } = $props();
 </script>
 
-<div class="min-h-screen bg-slate-50 dark:bg-black transition-colors">
-  <div style="padding-top: calc(3.5rem + env(safe-area-inset-top)); padding-bottom: calc(4rem + env(safe-area-inset-bottom));">
+<div class="app-shell bg-slate-50 dark:bg-black transition-colors">
+  <div class="app-topbar">
+    <TopNav showRefresh={currentPath === "/"} onRefresh={handleTopNavRefresh} />
+  </div>
+  <div class="app-scroll">
     {@render children()}
   </div>
-  <BottomNav bind:currentPath />
+  <div class="app-bottombar">
+    <BottomNav bind:currentPath />
+  </div>
 </div>
