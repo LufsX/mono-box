@@ -2,16 +2,19 @@
   import { exec, enableEdgeToEdge } from "kernelsu";
   import { onMount, tick } from "svelte";
   import { slide } from "svelte/transition";
-  import { Sun, Moon, Monitor } from "@lucide/svelte";
+  import { Sun, Moon, Monitor, RefreshCw } from "@lucide/svelte";
+  import { dev } from "$app/environment";
 
   let proxyMode = $state("rule");
   let tunEnabled = $state(false);
+  let coreConfig = $state<any>(null);
 
   type LogType = "info" | "success" | "error" | "cmd";
   let logs = $state<{ time: string; msg: string; type: LogType }[]>([]);
   let logsContainer: HTMLElement;
   let theme = $state<"system" | "light" | "dark">("system");
   let themeDropdownOpen = $state(false);
+  let initialLoading = $state(!dev);
 
   function addLog(msg: string, type: LogType = "info") {
     if (!msg) return;
@@ -64,6 +67,7 @@
     if (res.success && res.raw) {
       try {
         const config = JSON.parse(res.raw);
+        coreConfig = config;
         if (config.mode) proxyMode = config.mode;
         if (config.tun && typeof config.tun.enable === "boolean") {
           tunEnabled = config.tun.enable;
@@ -159,6 +163,7 @@
       const res = await execute("status", "status", false);
       if (res.raw) addLog(res.raw, res.success ? "info" : "error");
       await fetchStatus();
+      initialLoading = false;
     } catch (e) {}
   });
 </script>
@@ -169,6 +174,19 @@
 >
   <div class="font-bold text-lg text-slate-900 dark:text-slate-100 uppercase tracking-widest">Mono Box</div>
   <div class="relative flex items-center gap-3">
+    <!-- Refresh Button -->
+    <button
+      class="p-1.5 transition-all outline-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 shrink-0"
+      onclick={async (e) => {
+        const btn = e.currentTarget;
+        btn.classList.add("animate-spin");
+        await fetchStatus();
+        setTimeout(() => btn.classList.remove("animate-spin"), 500);
+      }}
+    >
+      <RefreshCw size={18} strokeWidth={2} />
+    </button>
+
     <!-- Expandable Options -->
     {#if themeDropdownOpen}
       <div transition:slide={{ axis: "x", duration: 250 }} class="flex text-sm font-bold">
@@ -257,7 +275,7 @@
       <div class="flex items-center justify-between">
         <div class="flex flex-col">
           <span class="text-sm font-bold text-slate-900 dark:text-slate-200">内核在线更新</span>
-          <span class="text-xs text-slate-500 dark:text-slate-400 mt-1">调用 Mihomo Core 内置 API 检查更新</span>
+          <span class="text-xs text-slate-500 dark:text-slate-400 mt-1">调用 Mihomo Core 内置 API 进行更新</span>
         </div>
         <button
           class="border border-slate-300 dark:border-zinc-700 px-4 py-1.5 text-sm font-bold hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors text-slate-800 dark:text-slate-200 active:bg-slate-200"
@@ -287,6 +305,41 @@
       </div>
     </div>
   </section>
+
+  <!-- Core Information -->
+  {#if coreConfig}
+    <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
+      <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950">
+        <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">核心状态与端口</h2>
+      </div>
+      <div class="p-4 grid grid-cols-2 sm:grid-cols-3 gap-y-5 gap-x-4">
+        <div class="flex flex-col">
+          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">HTTP PORT</span>
+          <span class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{coreConfig['port'] ?? '-'}</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">SOCKS PORT</span>
+          <span class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{coreConfig['socks-port'] ?? '-'}</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">MIXED PORT</span>
+          <span class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{coreConfig['mixed-port'] ?? '-'}</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">REDIR PORT</span>
+          <span class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{coreConfig['redir-port'] ?? '-'}</span>
+        </div>
+        <div class="flex flex-col">
+          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">TPROXY PORT</span>
+          <span class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">{coreConfig['tproxy-port'] ?? '-'}</span>
+        </div>
+        <div class="flex flex-col overflow-hidden w-full">
+          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">VERSION</span>
+          <span class="text-sm font-mono font-bold text-slate-800 dark:text-slate-200 truncate" title={coreConfig['global-ua']}>{coreConfig['global-ua'] ?? '-'}</span>
+        </div>
+      </div>
+    </section>
+  {/if}
 
   <!-- Services Actions -->
   <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
@@ -333,6 +386,15 @@
     </div>
   </section>
 </main>
+
+{#if initialLoading}
+  <div class="fixed inset-0 z-100 flex items-center justify-center bg-white/80 dark:bg-zinc-950/80 backdrop-blur-sm transition-opacity duration-300">
+    <div class="text-slate-500 dark:text-zinc-400 font-mono text-sm tracking-widest animate-pulse flex flex-col items-center gap-3">
+      <RefreshCw class="animate-spin" size={24} />
+      LOADING CORE STATUS
+    </div>
+  </div>
+{/if}
 
 <style>
   /* Custom thin scrollbar for log box */

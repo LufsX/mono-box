@@ -21,20 +21,35 @@ connected() {
     fi
 }
 
-status() {
-    curl "127.0.0.1:${clash_api_port}/configs" > /dev/null 2>&1
-    if ! [ $? = 0 ]; then
-        return 1
+api_request() {
+    local method="$1"
+    local path="$2"
+    local data="$3"
+
+    if [ -n "${clash_api_secret}" ]; then
+        if [ -n "${data}" ]; then
+            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}" \
+                -H "Authorization: Bearer ${clash_api_secret}" \
+                -H 'Content-Type: application/json' \
+                -d "${data}"
+        else
+            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}" \
+                -H "Authorization: Bearer ${clash_api_secret}"
+        fi
+    else
+        if [ -n "${data}" ]; then
+            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}" \
+                -H 'Content-Type: application/json' \
+                -d "${data}"
+        else
+            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}"
+        fi
     fi
-    return
 }
 
-getPort() {
-    printf '%s' "${clash_api_port}"
-}
-
-getSecret() {
-    printf '%s' "${clash_api_secret}"
+status() {
+    curl -s "http://127.0.0.1:${clash_api_port}/configs" > /dev/null 2>&1
+    return $?
 }
 
 stop_core() {
@@ -46,33 +61,13 @@ start_core() {
 }
 
 setOutbound() {
-    if [ -z "$1" ] || [ -z "$2" ]; then
-        return 1
-    fi
-
-    local secret
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl -X PUT "127.0.0.1:$(getPort)/proxies/$1" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d '{"name": "'$2'"}'
-        return
-    fi
-
-    curl -X PUT "127.0.0.1:$(getPort)/proxies/$1" -H 'Content-Type: application/json' -d '{"name": "'$2'"}'
+    [ -z "$1" ] || [ -z "$2" ] && return 1
+    api_request PUT "/proxies/$1" "{\"name\": \"$2\"}"
 }
 
 setMode() {
-    if [ -z "$1" ]; then
-        return 1
-    fi
-
-    local secret
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl -X PATCH "127.0.0.1:$(getPort)/configs" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d '{"mode": "'$1'"}'
-        return
-    fi
-
-    curl -X PATCH "127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' -d '{"mode": "'$1'"}'
+    [ -z "$1" ] && return 1
+    api_request PATCH "/configs" "{\"mode\": \"$1\"}"
 }
 
 getTarget() {
@@ -82,71 +77,29 @@ getTarget() {
 }
 
 getKeyValue() {
-    if [ -z "$1" ]; then
-        return
-    fi
-
+    [ -z "$1" ] && return 1
     local key="$1"
     read -r line
     printf '%s' "$line" | grep -E -o '"'${key}'" *: *[0-9]*|"'${key}'" *: *"[^"]+"|"'${key}'" *: *true|"'${key}'" *: *false|"'${key}'" *: *null' | awk -F '(: ?)' '{gsub(/^"|"$/, "", $2); print $2}'
 }
 
 getNowOutbound() {
-    local secret
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl "127.0.0.1:$(getPort)/proxies/${select_outbound}" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue now
-        return
-    fi
-
-    curl "127.0.0.1:$(getPort)/proxies/${select_outbound}" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue now
+    api_request GET "/proxies/${select_outbound}" 2> /dev/null | getKeyValue now
 }
 
 getNowMode() {
-    local secret
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl "127.0.0.1:$(getPort)/configs" -H "authorization: Bearer ${secret}" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue mode
-        return
-    fi
-
-    curl "127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue mode
+    api_request GET "/configs" 2> /dev/null | getKeyValue mode
 }
 
 setTun() {
-    if [ -z "$1" ]; then
-        return 1
-    fi
-
-    local secret
-    local req_data="{\"tun\": {\"enable\": ${1}}}"
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl -s -X PATCH "http://127.0.0.1:$(getPort)/configs" -H "Authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d "${req_data}"
-        return
-    fi
-
-    curl -s -X PATCH "http://127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' -d "${req_data}"
+    [ -z "$1" ] && return 1
+    api_request PATCH "/configs" "{\"tun\": {\"enable\": ${1}}}"
 }
 
 getConfigs() {
-    local secret
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl -s "http://127.0.0.1:$(getPort)/configs" -H "Authorization: Bearer ${secret}"
-        return
-    fi
-
-    curl -s "http://127.0.0.1:$(getPort)/configs"
+    api_request GET "/configs"
 }
 
 upgradeCore() {
-    local secret
-    secret=$(getSecret)
-    if [ -n "${secret}" ]; then
-        curl -s -X POST "http://127.0.0.1:$(getPort)/upgrade" -H "Authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d "{}"
-        return
-    fi
-
-    curl -s -X POST "http://127.0.0.1:$(getPort)/upgrade" -H 'Content-Type: application/json' -d "{}"
+    api_request POST "/upgrade" "{}"
 }
