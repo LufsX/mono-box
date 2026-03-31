@@ -1,6 +1,8 @@
 <script lang="ts">
   import { exec, enableEdgeToEdge } from "kernelsu";
   import { onMount, tick } from "svelte";
+  import { slide } from "svelte/transition";
+  import { Sun, Moon, Monitor } from "@lucide/svelte";
 
   let proxyMode = $state("rule");
   let tunEnabled = $state(false);
@@ -9,6 +11,7 @@
   let logs = $state<{ time: string; msg: string; type: LogType }[]>([]);
   let logsContainer: HTMLElement;
   let theme = $state<"system" | "light" | "dark">("system");
+  let themeDropdownOpen = $state(false);
 
   function addLog(msg: string, type: LogType = "info") {
     if (!msg) return;
@@ -26,7 +29,11 @@
   }
 
   async function execute(actionCmd: string, desc: string, showLog: boolean = true) {
-    if (showLog) addLog(`> ${desc}`, "cmd");
+    if (showLog) {
+      addLog(`> /data/adb/modules/mono_box/action.sh ${actionCmd}`, "cmd");
+      await tick();
+      await new Promise((resolve) => setTimeout(resolve, 15)); // Force UI paint before shell blocking
+    }
     try {
       const result = await exec(`su -c '/data/adb/modules/mono_box/action.sh ${actionCmd}'`, { cwd: "/data/adb/modules/mono_box" });
       const raw = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
@@ -161,25 +168,61 @@
   style="padding-top: env(safe-area-inset-top); height: calc(3.5rem + env(safe-area-inset-top));"
 >
   <div class="font-bold text-lg text-slate-900 dark:text-slate-100 uppercase tracking-widest">Mono Box</div>
-  <div class="flex bg-slate-100 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 text-xs font-bold uppercase tracking-wider">
+  <div class="relative flex items-center gap-3">
+    <!-- Expandable Options -->
+    {#if themeDropdownOpen}
+      <div transition:slide={{ axis: "x", duration: 250 }} class="flex text-sm font-bold">
+        <button
+          class="px-3 py-1.5 transition-all outline-none border -ml-px first:ml-0 {theme === 'light'
+            ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
+            : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
+          onclick={() => {
+            setTheme("light");
+            themeDropdownOpen = false;
+          }}
+        >
+          <Sun size={18} strokeWidth={2} />
+        </button>
+        <button
+          class="px-3 py-1.5 transition-all outline-none border -ml-px {theme === 'system'
+            ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
+            : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
+          onclick={() => {
+            setTheme("system");
+            themeDropdownOpen = false;
+          }}
+        >
+          <Monitor size={18} strokeWidth={2} />
+        </button>
+        <button
+          class="px-3 py-1.5 transition-all outline-none border -ml-px {theme === 'dark'
+            ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
+            : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
+          onclick={() => {
+            setTheme("dark");
+            themeDropdownOpen = false;
+          }}
+        >
+          <Moon size={18} strokeWidth={2} />
+        </button>
+      </div>
+    {/if}
+
+    <!-- Current Theme Indicator Button -->
     <button
-      class="px-3 py-1.5 transition-colors {theme === 'light'
-        ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900'
-        : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}"
-      onclick={() => setTheme("light")}>浅色</button
+      class="px-3 py-1.5 border transition-all outline-none {themeDropdownOpen
+        ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900'
+        : 'border-slate-300 dark:border-zinc-700 text-slate-800 dark:text-slate-200 bg-white dark:bg-zinc-950 hover:bg-slate-50 dark:hover:bg-zinc-900'} shrink-0"
+      onclick={() => (themeDropdownOpen = !themeDropdownOpen)}
     >
-    <button
-      class="px-3 py-1.5 transition-colors border-l border-r border-slate-300 dark:border-zinc-700 {theme === 'system'
-        ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900'
-        : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}"
-      onclick={() => setTheme("system")}>系统</button
-    >
-    <button
-      class="px-3 py-1.5 transition-colors {theme === 'dark'
-        ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900'
-        : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'}"
-      onclick={() => setTheme("dark")}>深色</button
-    >
+      {#if theme === "light"}
+        <Sun size={18} strokeWidth={2} />
+      {:else if theme === "dark"}
+        <Moon size={18} strokeWidth={2} />
+      {:else}
+        <Monitor size={18} strokeWidth={2} />
+      {/if}
+    </button>
   </div>
 </nav>
 
@@ -195,13 +238,17 @@
           <span class="text-sm font-bold text-slate-900 dark:text-slate-200">TUN 模式开启</span>
           <span class="text-xs text-slate-500 dark:text-slate-400 mt-1">{tunEnabled ? "底层流量网络全局接管中" : "已停用底层接管"}</span>
         </div>
-        <div class="flex border border-slate-300 dark:border-zinc-700 font-bold text-sm">
+        <div class="flex font-bold text-sm">
           <button
-            class="px-4 py-1.5 transition-colors {tunEnabled ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800'}"
+            class="px-4 py-1.5 transition-all outline-none border -ml-px first:ml-0 {tunEnabled
+              ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
+              : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
             onclick={() => switchTunMode(true)}>ON</button
           >
           <button
-            class="px-4 py-1.5 transition-colors {!tunEnabled ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800'}"
+            class="px-4 py-1.5 transition-all outline-none border -ml-px {!tunEnabled
+              ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
+              : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
             onclick={() => switchTunMode(false)}>OFF</button
           >
         </div>
@@ -226,12 +273,12 @@
       <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">代理模式选择</h2>
     </div>
     <div class="p-4">
-      <div class="flex border border-slate-300 dark:border-zinc-700 text-sm font-bold w-full text-center">
+      <div class="flex text-sm font-bold w-full text-center">
         {#each ["rule", "global", "direct"] as mode}
           <button
-            class="flex-1 py-2.5 transition-colors border-r last:border-r-0 border-slate-300 dark:border-zinc-700 {proxyMode === mode
-              ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900'
-              : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800'}"
+            class="flex-1 py-2.5 transition-all outline-none border -ml-px first:ml-0 {proxyMode === mode
+              ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
+              : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
             onclick={() => switchProxyMode(mode)}
           >
             {mode.toUpperCase()}
