@@ -1,4 +1,31 @@
-.omc
-.tmp
+# Output
+/webui/.output
+/webui/.vercel
+/webui/.netlify
+/webui/.wrangler
+/webui/.svelte-kit
+/webui/build
+/webui/node_modules
+MonoBox*
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Tmp
+.tmp
 *.log
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+# Editor
+.vscode
+.omc

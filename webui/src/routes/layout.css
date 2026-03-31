@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    padding-top: var(--ksu-insets-top, 0px);
+    padding-right: var(--ksu-insets-right, 0px);
+    padding-bottom: var(--ksu-insets-bottom, 0px);
+    padding-left: var(--ksu-insets-left, 0px);
+    @apply bg-slate-50 text-slate-900 transition-colors duration-300 dark:bg-[#0a0a0c] dark:text-slate-100;
+  }
+}
