@@ -3,24 +3,24 @@
 SKIPUNZIP=1
 ASH_STANDALONE=1
 
+wait_key_release() {
+    local key_name="$1"
+    local event
+
+    while true; do
+        event=$(/system/bin/getevent -qlc 1 2> /dev/null)
+        echo "${event}" | grep -q "${key_name}.*UP" && return 0
+    done
+}
+
 choose_with_volume() {
     local prompt="$1"
     local up_label="$2"
     local down_label="$3"
 
-    wait_key_release() {
-        local key_name="$1"
-        local event
-
-        while true; do
-            event=$(/system/bin/getevent -qlc 1 2> /dev/null)
-            echo "${event}" | grep -q "${key_name}.*UP" && return 0
-        done
-    }
-
     ui_print "- ${prompt}"
-    ui_print "  Vol+ = ${up_label}"
-    ui_print "  Vol- = ${down_label}"
+    ui_print "    Vol+ : ${up_label}"
+    ui_print "    Vol- : ${down_label}"
 
     while true; do
         local event
@@ -49,6 +49,82 @@ wrap_github_url() {
     fi
 
     printf "%s" "${url}"
+}
+
+download_file_with_progress() {
+    local source_url="$1"
+    local output_file="$2"
+    local header
+    local total_bytes=""
+    local next_percent=10
+    local elapsed=0
+    local report_interval=4
+
+    rm -f "${output_file}" > /dev/null 2>&1
+
+    header=$(curl -fsSLI --connect-timeout 15 --retry 1 "${source_url}" 2> /dev/null) || true
+    total_bytes=$(printf "%s\n" "${header}" | tr -d '\r' | awk 'BEGIN{IGNORECASE=1} /^Content-Length:/ {print $2; exit}')
+
+    curl -fL --connect-timeout 20 --retry 3 --retry-delay 2 --retry-all-errors -o "${output_file}" "${source_url}" > /dev/null 2>&1 &
+    local curl_pid=$!
+
+    while kill -0 "${curl_pid}" > /dev/null 2>&1; do
+        sleep 1
+        elapsed=$((elapsed + 1))
+
+        local current_bytes
+        current_bytes=$(wc -c < "${output_file}" 2> /dev/null)
+        [ -n "${current_bytes}" ] || current_bytes=0
+
+        if [ -n "${total_bytes}" ] && [ "${total_bytes}" -gt 0 ] 2> /dev/null; then
+            local percent
+            percent=$((current_bytes * 100 / total_bytes))
+            [ "${percent}" -gt 99 ] && percent=99
+
+            while [ "${percent}" -ge "${next_percent}" ]; do
+                local current_mb total_mb
+                current_mb=$(awk "BEGIN {printf \"%.1f\", ${current_bytes}/1024/1024}")
+                total_mb=$(awk "BEGIN {printf \"%.1f\", ${total_bytes}/1024/1024}")
+                ui_print "    Progress: ${next_percent}% (${current_mb}MB/${total_mb}MB)"
+                next_percent=$((next_percent + 10))
+            done
+        elif [ $((elapsed % report_interval)) -eq 0 ]; then
+            local current_mb
+            current_mb=$(awk "BEGIN {printf \"%.1f\", ${current_bytes}/1024/1024}")
+            ui_print "    Progress: downloading... (${current_mb}MB)"
+        fi
+    done
+
+    wait "${curl_pid}"
+    local curl_rc=$?
+
+    if [ "${curl_rc}" -ne 0 ]; then
+        return 1
+    fi
+
+    if [ -n "${total_bytes}" ] && [ "${total_bytes}" -gt 0 ] 2> /dev/null; then
+        local current_mb total_mb
+        current_mb=$(awk "BEGIN {printf \"%.1f\", ${total_bytes}/1024/1024}")
+        total_mb=$(awk "BEGIN {printf \"%.1f\", ${total_bytes}/1024/1024}")
+        ui_print "    Progress: 100% (${current_mb}MB/${total_mb}MB)"
+    else
+        local current_bytes current_mb
+        current_bytes=$(wc -c < "${output_file}" 2> /dev/null)
+        [ -n "${current_bytes}" ] || current_bytes=0
+        current_mb=$(awk "BEGIN {printf \"%.1f\", ${current_bytes}/1024/1024}")
+        ui_print "    Progress: completed (${current_mb}MB)"
+    fi
+
+    return 0
+}
+
+download_asset() {
+    local origin_url="$1"
+    local output_file="$2"
+    local primary_url
+
+    primary_url="$(wrap_github_url "${origin_url}")"
+    download_file_with_progress "${primary_url}" "${output_file}"
 }
 
 core_target_path() {
@@ -188,7 +264,8 @@ install_downloaded_core() {
 }
 
 download_core_by_choice() {
-    local kernel_type="$1"
+    local core_type="$1"
+    local allow_overwrite="${2:-false}"
     local urls=""
     local download_url=""
     local temp_base="${BOX_CORE_TMPDIR:-/data/local/tmp}"
@@ -197,21 +274,30 @@ download_core_by_choice() {
     local asset_name=""
     local download_file=""
 
+    ui_print "- Core download plan"
+    ui_print "    Selected core type : ${core_type}"
+    ui_print "  - [1/4] Preparing download environment"
+
     if ! command -v curl > /dev/null 2>&1; then
-        ui_print "- curl is missing, skip core download."
+        ui_print "    Error: curl is missing, skip core download."
         return 1
     fi
 
     target="$(core_target_path)"
-    if [ -s "${target}" ]; then
-        ui_print "- Core already exists, skip download: ${target}"
+    if [ -s "${target}" ] && [ "${allow_overwrite}" != "true" ]; then
+        ui_print "    Core already exists, skip download: ${target}"
         return 0
     fi
 
-    detect_arch
-    ui_print "- Device ABI: ${ARCH_NAME}"
+    if [ -s "${target}" ] && [ "${allow_overwrite}" = "true" ]; then
+        ui_print "    Core exists and will be overwritten: ${target}"
+    fi
 
-    if [ "${kernel_type}" = "mihomo" ]; then
+    detect_arch
+    ui_print "    Device ABI : ${ARCH_NAME}"
+    ui_print "  - [2/4] Fetching release asset list"
+
+    if [ "${core_type}" = "mihomo" ]; then
         urls=$(extract_urls_from_release_api "https://api.github.com/repos/MetaCubeX/mihomo/releases") || return 1
         download_url=$(pick_download_url "${urls}" "mihomo")
     else
@@ -220,7 +306,7 @@ download_core_by_choice() {
     fi
 
     if [ -z "${download_url}" ]; then
-        ui_print "- No matching ${kernel_type} asset found for ${ARCH_NAME}."
+        ui_print "    Error: no matching ${core_type} asset found for ${ARCH_NAME}."
         return 1
     fi
 
@@ -229,61 +315,75 @@ download_core_by_choice() {
     asset_name="${asset_name%%\?*}"
     download_file="${temp_dir}/${asset_name}"
 
-    ui_print "- Downloading ${kernel_type}: ${asset_name}"
-    curl -fL --connect-timeout 20 --retry 2 -o "${download_file}" "$(wrap_github_url "${download_url}")" || {
+    ui_print "  - [3/4] Downloading core asset"
+    ui_print "    Asset: ${asset_name}"
+    download_asset "${download_url}" "${download_file}" || {
         rm -rf "${temp_dir}" > /dev/null 2>&1
         return 1
     }
 
+    ui_print "  - [4/4] Installing core binary"
     install_downloaded_core "${download_file}" "${asset_name}" "${temp_dir}" || {
         rm -rf "${temp_dir}" > /dev/null 2>&1
         return 1
     }
 
     rm -rf "${temp_dir}" > /dev/null 2>&1
-    ui_print "- ${kernel_type} installed to ${target}"
+    ui_print "    Installed ${core_type} to ${target}"
     return 0
 }
 
 maybe_download_core_with_volume() {
-    local kernel_type="mihomo"
+    local core_type="mihomo"
+    local allow_overwrite="false"
     local target
 
     target="$(core_target_path)"
     if [ -s "${target}" ]; then
-        ui_print "- Core already exists, skip download: ${target}"
-        return 0
-    fi
+        ui_print "- Core status"
+        ui_print "    Existing core: ${target}"
 
-    if choose_with_volume "Download kernel now?" "Yes" "No"; then
-        ui_print "- Download: enabled"
+        if choose_with_volume "Core exists, overwrite it?" "Yes" "No"; then
+            allow_overwrite="true"
+            ui_print "    Selected: overwrite enabled"
+        else
+            ui_print "    Selected: keep existing core, skip download"
+            return 0
+        fi
     else
-        ui_print "- Download: skipped"
-        return 0
+        if choose_with_volume "Download core now?" "Yes" "No"; then
+            ui_print "    Selected: start core download"
+        else
+            ui_print "    Selected: skip core download"
+            return 0
+        fi
     fi
 
     if choose_with_volume "Use GitHub acceleration?" "Yes" "No"; then
         USE_GITHUB_PROXY="true"
-        ui_print "- GitHub acceleration: enabled"
+        ui_print "    Selected: GitHub acceleration enabled"
     else
         USE_GITHUB_PROXY="false"
-        ui_print "- GitHub acceleration: disabled"
+        ui_print "    Selected: GitHub acceleration disabled"
     fi
 
-    if choose_with_volume "Choose kernel type" "mihomo" "mihomo_smart"; then
-        kernel_type="mihomo"
+    if choose_with_volume "Choose core type" "mihomo" "mihomo_smart"; then
+        core_type="mihomo"
+        ui_print "    Selected core type: mihomo"
     else
-        kernel_type="mihomo_smart"
+        core_type="mihomo_smart"
+        ui_print "    Selected core type: mihomo_smart"
     fi
 
-    if download_core_by_choice "${kernel_type}"; then
-        ui_print "- Core download done."
+    if download_core_by_choice "${core_type}" "${allow_overwrite}"; then
+        ui_print "- Core download finished"
     else
-        ui_print "- Core download failed, please download manually later."
+        ui_print "- Core download failed"
+        ui_print "    Please download core manually later."
     fi
 }
 
-if [ "$BOOTMODE" ! = true ]; then
+if [ "$BOOTMODE" != true ]; then
     abort "Error: Please install in Magisk Manager, KernelSU Manager or APatch"
 fi
 
@@ -298,22 +398,24 @@ else
 fi
 
 if [ ! -d "$service_dir" ]; then
-    mkdir -p $service_dir
+    mkdir -p "$service_dir"
 fi
 
-unzip -qo "${ZIPFILE}" -x 'META-INF/*' -d $MODPATH
+unzip -qo "${ZIPFILE}" -x 'META-INF/*' -d "$MODPATH"
 
 if [ -d /data/adb/box ]; then
-    cp /data/adb/box/scripts/box.config /data/adb/box/scripts/box.config.bak
-    ui_print "- User configuration box.config has been backed up to box.config.bak"
+    if [ -f /data/adb/box/scripts/box.config ]; then
+        cp /data/adb/box/scripts/box.config /data/adb/box/scripts/box.config.bak
+        ui_print "- User configuration box.config has been backed up to box.config.bak"
+    fi
 
-    cp -f $MODPATH/box/scripts/* /data/adb/box/scripts/
-    ui_print "- Module scripts have been refreshed."
-    ui_print "- Please re-check box.config if needed."
+    cp -f "$MODPATH"/box/scripts/* /data/adb/box/scripts/
+    ui_print "- Module scripts have been refreshed"
+    ui_print "    Please re-check box.config if needed."
 
-    rm -rf $MODPATH/box
+    rm -rf "$MODPATH"/box
 else
-    mv $MODPATH/box /data/adb/
+    mv "$MODPATH"/box /data/adb/
 fi
 
 mkdir -p /data/adb/box/bin/
@@ -321,17 +423,17 @@ mkdir -p /data/adb/box/run/
 
 maybe_download_core_with_volume
 
-mv -f $MODPATH/box_service.sh $service_dir/
+mv -f "$MODPATH"/box_service.sh "$service_dir"/
 
-rm -f customize.sh
+rm -f "$MODPATH"/customize.sh
 
-set_perm_recursive $MODPATH 0 0 0755 0644
-set_perm_recursive $MODPATH/action.sh 0 0 0755 0700
+set_perm_recursive "$MODPATH" 0 0 0755 0644
+set_perm_recursive "$MODPATH"/action.sh 0 0 0755 0700
 set_perm_recursive /data/adb/box/ 0 0 0755 0644
 set_perm_recursive /data/adb/box/scripts/ 0 0 0755 0700
 set_perm_recursive /data/adb/box/bin/ 0 0 0755 0700
 
-set_perm $service_dir/box_service.sh 0 0 0700
+set_perm "$service_dir"/box_service.sh 0 0 0700
 
 # fix "set_perm_recursive /data/adb/box/scripts" not working on some phones.
 chmod ugo+x /data/adb/box/scripts/*

@@ -117,10 +117,10 @@
           <span class="flex items-center justify-center gap-2">
             {#if boxConfigLoading}
               <Loader size={16} class="animate-spin" />
-              保存中...
+              保存中…
             {:else if boxConfigSaved}
               <Check size={16} class="text-emerald-200 dark:text-emerald-700" />
-              已保存
+              保存成功
             {:else}
               <Save size={16} class="transition-transform duration-300 group-hover:scale-105" />
               保存配置
