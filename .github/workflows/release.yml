@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -60,6 +60,9 @@ jobs:
             echo "zip_url=${ZIP_URL}"
             echo "changelog_url=${CHANGELOG_URL}"
           } >> "${GITHUB_OUTPUT}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
 
       - name: Run build.sh
         run: sh build.sh

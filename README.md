@@ -116,6 +116,6 @@ To remove data manually:
 
 # TODO
 
-- [ ] WEB UI Management Panel
-- [ ] Clash API Switch to TUN Mode
+- [x] WEB UI Management Panel
+- [x] Clash API Switch to TUN Mode
 - [ ] Action.sh Supports Custom Execution Actions in WEB UI

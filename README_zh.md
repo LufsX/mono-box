@@ -114,6 +114,6 @@ Action 控制：
 
 # TODO
 
-- [ ] WEB UI 管理面板
-- [ ] Clash API 切换 TUN 模式
+- [x] WEB UI 管理面板
+- [x] Clash API 切换 TUN 模式
 - [ ] Action.sh 支持在 WEB UI 中自定义执行动作
