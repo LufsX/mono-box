@@ -1,4 +1,4 @@
-import { exec } from "kernelsu";
+import { readBoxConfigRaw, writeBoxConfigRaw } from "./action";
 
 export interface ClashConfig {
   port: number;
@@ -38,15 +38,6 @@ function formatExecFailure(action: string, result: { errno: number; stdout?: str
     .trim();
 
   return details ? `${action} failed (errno=${result.errno}): ${details}` : `${action} failed (errno=${result.errno})`;
-}
-
-function toBase64Utf8(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
 }
 
 function parseBoxConfigContent(content: string): BoxConfigValues {
@@ -90,9 +81,7 @@ async function getClashConfig(): Promise<ClashConfig> {
 
   // 从 box.config 读取
   try {
-    const result = await exec("su -c 'cat /data/adb/box/scripts/box.config'", {
-      cwd: "/data/adb/box",
-    });
+    const result = await readBoxConfigRaw();
 
     if (result.errno !== 0 || !result.stdout) {
       throw new Error("Failed to read config file");
@@ -282,9 +271,7 @@ export function clearConfigCache(): void {
  */
 export async function readBoxConfig(): Promise<string> {
   try {
-    const result = await exec("su -c 'cat /data/adb/box/scripts/box.config'", {
-      cwd: "/data/adb/box",
-    });
+    const result = await readBoxConfigRaw();
 
     if (result.errno !== 0) {
       throw new Error(formatExecFailure("Read box.config", result));
@@ -306,15 +293,7 @@ export async function readBoxConfig(): Promise<string> {
  */
 export async function writeBoxConfig(content: string): Promise<void> {
   try {
-    const normalizedContent = content.replace(/\r\n/g, "\n");
-    const base64Content = toBase64Utf8(normalizedContent);
-    let marker = "__MONO_BOX_B64_EOF__";
-    while (base64Content.includes(marker)) {
-      marker = `${marker}_X`;
-    }
-
-    const command = `su -c 'if command -v base64 >/dev/null 2>&1; then base64 -d; else busybox base64 -d; fi > /data/adb/box/scripts/box.config <<"${marker}"\n${base64Content}\n${marker}'`;
-    const result = await exec(command, { cwd: "/data/adb/box" });
+    const result = await writeBoxConfigRaw(content);
 
     if (result.errno !== 0) {
       throw new Error(formatExecFailure("Write box.config", result));

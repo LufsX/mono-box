@@ -10,9 +10,9 @@
     <div class="flex text-sm font-bold w-full text-center">
       {#each ["rule", "global", "direct"] as m}
         <button
-          class="flex-1 py-2.5 transition-all outline-none border -ml-px first:ml-0 {mode === m
-            ? 'border-slate-800 dark:border-slate-400 bg-slate-800 text-white dark:bg-slate-200 dark:text-zinc-900 z-10'
-            : 'border-slate-300 dark:border-zinc-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-zinc-800 z-0'}"
+          class="flex-1 py-2.5 transition-all duration-300 outline-none border -ml-px first:ml-0 {mode === m
+            ? 'border-slate-800/75 dark:border-slate-400/75 bg-slate-800/82 dark:bg-slate-200/80 backdrop-blur-md text-white dark:text-zinc-900 z-10 shadow-[0_6px_14px_rgba(15,23,42,0.16)]'
+            : 'border-slate-300/80 dark:border-zinc-700/75 bg-white/65 dark:bg-zinc-900/62 backdrop-blur-sm text-slate-500 hover:bg-slate-50/82 dark:hover:bg-zinc-800/72 z-0'}"
           onclick={() => onSwitch(m)}
         >
           {m.toUpperCase()}

@@ -1,16 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { RefreshCw } from "@lucide/svelte";
   import ThemeSelector from "./ThemeSelector.svelte";
 
   let {
     title = "Mono Box",
-    onRefresh,
-    showRefresh = true,
   }: {
     title?: string;
-    onRefresh?: () => void | Promise<void>;
-    showRefresh?: boolean;
   } = $props();
 
   let theme = $state<"system" | "light" | "dark">("system");
@@ -44,18 +39,6 @@
     };
   });
 
-  async function handleRefresh(e: MouseEvent) {
-    if (!onRefresh) return;
-
-    const btn = e.currentTarget as HTMLButtonElement;
-    btn.classList.add("animate-spin");
-
-    try {
-      await onRefresh();
-    } finally {
-      setTimeout(() => btn.classList.remove("animate-spin"), 500);
-    }
-  }
 </script>
 
 <nav
@@ -65,12 +48,6 @@
   <div class="pointer-events-none absolute inset-0 bg-linear-to-b from-white/14 via-white/8 to-transparent dark:from-white/5 dark:via-white/2"></div>
   <div class="font-bold text-lg text-slate-900 dark:text-slate-100 uppercase tracking-widest shrink-0 relative z-10">{title}</div>
   <div class="relative flex items-center shrink-0 min-w-0 z-10">
-    {#if showRefresh && !themeDropdownOpen}
-      <button class="p-1.5 transition-all outline-none text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 shrink-0" onclick={handleRefresh}>
-        <RefreshCw size={18} strokeWidth={2} />
-      </button>
-    {/if}
-
     <ThemeSelector bind:theme bind:expanded={themeDropdownOpen} />
   </div>
 </nav>

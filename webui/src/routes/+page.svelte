@@ -1,8 +1,12 @@
 <script lang="ts">
-  import { exec, enableEdgeToEdge } from "kernelsu";
   import { onMount } from "svelte";
+  import { cubicOut } from "svelte/easing";
+  import { fly } from "svelte/transition";
   import { dev } from "$app/environment";
-  import * as clashApi from "$lib/api/clash";
+  import * as actionRealApi from "$lib/api/action";
+  import * as actionMockApi from "$lib/api/action.mock";
+  import * as clashRealApi from "$lib/api/clash";
+  import * as clashMockApi from "$lib/api/clash.mock";
   import CoreInfo from "$lib/components/CoreInfo.svelte";
   import TunControl from "$lib/components/TunControl.svelte";
   import ServiceActions from "$lib/components/ServiceActions.svelte";
@@ -10,13 +14,20 @@
   import ProxyMode from "$lib/components/ProxyMode.svelte";
   import LogTerminal from "$lib/components/LogTerminal.svelte";
 
+  const clashApi = dev ? clashMockApi : clashRealApi;
+  const actionApi = dev ? actionMockApi : actionRealApi;
+
+  // Keep startup mask one-time per app runtime; returning to this route won't show it again.
+  let hasShownInitialLoading = false;
+
   let proxyMode = $state("rule");
   let tunEnabled = $state(false);
   let coreConfig = $state<any>(null);
+  let refreshing = $state(false);
 
   type LogType = "info" | "success" | "error" | "cmd";
   let logs = $state<{ time: string; msg: string; type: LogType }[]>([]);
-  let initialLoading = $state(!dev);
+  let initialLoading = $state(!dev && !hasShownInitialLoading);
 
   function addLog(msg: string, type: LogType = "info") {
     if (!msg) return;
@@ -33,9 +44,7 @@
     addLog(`> /data/adb/modules/mono_box/action.sh ${actionCmd}`, "cmd");
 
     try {
-      const result = await exec(`su -c '/data/adb/modules/mono_box/action.sh ${actionCmd}'`, {
-        cwd: "/data/adb/modules/mono_box",
-      });
+      const result = await actionApi.runActionScript(actionCmd);
 
       const raw = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
       const isError = result.errno !== 0;
@@ -67,8 +76,16 @@
   }
 
   async function handleRefresh() {
+    if (refreshing) return;
+    refreshing = true;
     addLog("Refreshing status...", "info");
-    await fetchStatus();
+    try {
+      await fetchStatus();
+    } finally {
+      setTimeout(() => {
+        refreshing = false;
+      }, 300);
+    }
   }
 
   async function handleTunSwitch(enable: boolean | string) {
@@ -77,7 +94,7 @@
       return;
     }
 
-    addLog(`Switching TUN mode to ${enable}...`, "info");
+    addLog(`Switching TUN mode to ${enable}...`, "cmd");
 
     try {
       await clashApi.setTun(enable as boolean);
@@ -90,7 +107,7 @@
   }
 
   async function switchProxyMode(newMode: string) {
-    addLog(`Switching proxy mode to ${newMode}...`, "info");
+    addLog(`Switching proxy mode to ${newMode}...`, "cmd");
 
     try {
       await clashApi.setMode(newMode);
@@ -103,7 +120,7 @@
   }
 
   async function handleUpgradeCore() {
-    addLog("Upgrading core...", "info");
+    addLog("Upgrading core...", "cmd");
 
     try {
       const result = await clashApi.upgradeCore();
@@ -130,50 +147,57 @@
     }
   }
 
+  function hideInitialLoadingWithDelay() {
+    setTimeout(() => {
+      initialLoading = false;
+      hasShownInitialLoading = true;
+    }, 200);
+  }
+
   onMount(() => {
-    const refreshListener = () => {
-      void handleRefresh();
-    };
-
-    window.addEventListener("mono-box:refresh-request", refreshListener);
-
     (async () => {
       try {
-        if (typeof enableEdgeToEdge === "function") {
-          enableEdgeToEdge(true);
-        }
+        await actionApi.setEdgeToEdge(true);
 
         addLog("Initializing WebUI...", "info");
         await execute("status");
         await fetchStatus();
 
-        initialLoading = false;
+        hideInitialLoadingWithDelay();
       } catch (e) {
         console.error("Initialization error:", e);
-        initialLoading = false;
+        hideInitialLoadingWithDelay();
       }
     })();
-
-    return () => {
-      window.removeEventListener("mono-box:refresh-request", refreshListener);
-    };
   });
 </script>
 
-<main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
-  <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} />
+<main class="relative max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
+  <div in:fly={{ y: 14, duration: 280, delay: 20, easing: cubicOut }}>
+    <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} onRefresh={handleRefresh} {refreshing} />
+  </div>
 
-  <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />
+  <div in:fly={{ y: 14, duration: 280, delay: 60, easing: cubicOut }}>
+    <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />
+  </div>
+
+  <div in:fly={{ y: 14, duration: 280, delay: 140, easing: cubicOut }}>
+    <SystemStats />
+  </div>
 
   {#if coreConfig}
-    <CoreInfo config={coreConfig} />
+    <div in:fly={{ y: 14, duration: 280, delay: 100, easing: cubicOut }}>
+      <CoreInfo config={coreConfig} />
+    </div>
   {/if}
 
-  <SystemStats />
+  <div in:fly={{ y: 14, duration: 280, delay: 180, easing: cubicOut }}>
+    <ServiceActions onAction={runAction} />
+  </div>
 
-  <ServiceActions onAction={runAction} />
-
-  <LogTerminal bind:logs />
+  <div in:fly={{ y: 14, duration: 280, delay: 220, easing: cubicOut }}>
+    <LogTerminal bind:logs />
+  </div>
 </main>
 
 {#if initialLoading}

@@ -1,6 +1,10 @@
 <script lang="ts">
+  import { dev } from "$app/environment";
   import { onMount, onDestroy } from "svelte";
-  import * as clashApi from "$lib/api/clash";
+  import * as clashRealApi from "$lib/api/clash";
+  import * as clashMockApi from "$lib/api/clash.mock";
+
+  const clashApi = dev ? clashMockApi : clashRealApi;
 
   let memory = $state<number | null>(null);
   let uploadSpeed = $state<number | null>(null);
