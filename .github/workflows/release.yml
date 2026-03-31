@@ -63,6 +63,9 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
+        with:
+          run_install: false
+          package_json_file: webui/package.json
 
       - name: Run build.sh
         run: sh build.sh
