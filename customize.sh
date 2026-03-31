@@ -326,6 +326,7 @@ mv -f $MODPATH/box_service.sh $service_dir/
 rm -f customize.sh
 
 set_perm_recursive $MODPATH 0 0 0755 0644
+set_perm_recursive $MODPATH/action.sh 0 0 0755 0700
 set_perm_recursive /data/adb/box/ 0 0 0755 0644
 set_perm_recursive /data/adb/box/scripts/ 0 0 0755 0700
 set_perm_recursive /data/adb/box/bin/ 0 0 0755 0700

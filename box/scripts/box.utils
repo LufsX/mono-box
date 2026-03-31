@@ -112,3 +112,41 @@ getNowMode() {
 
     curl "127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' 2> /dev/null | getKeyValue mode
 }
+
+setTun() {
+    if [ -z "$1" ]; then
+        return 1
+    fi
+
+    local secret
+    local req_data="{\"tun\": {\"enable\": ${1}}}"
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl -s -X PATCH "http://127.0.0.1:$(getPort)/configs" -H "Authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d "${req_data}"
+        return
+    fi
+
+    curl -s -X PATCH "http://127.0.0.1:$(getPort)/configs" -H 'Content-Type: application/json' -d "${req_data}"
+}
+
+getConfigs() {
+    local secret
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl -s "http://127.0.0.1:$(getPort)/configs" -H "Authorization: Bearer ${secret}"
+        return
+    fi
+
+    curl -s "http://127.0.0.1:$(getPort)/configs"
+}
+
+upgradeCore() {
+    local secret
+    secret=$(getSecret)
+    if [ -n "${secret}" ]; then
+        curl -s -X POST "http://127.0.0.1:$(getPort)/upgrade" -H "Authorization: Bearer ${secret}" -H 'Content-Type: application/json' -d "{}"
+        return
+    fi
+
+    curl -s -X POST "http://127.0.0.1:$(getPort)/upgrade" -H 'Content-Type: application/json' -d "{}"
+}
