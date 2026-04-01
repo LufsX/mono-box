@@ -1,28 +1,61 @@
 <script lang="ts">
-  import { page } from "$app/state";
+  import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
+  import { dev } from "$app/environment";
   import TopNav from "$lib/components/TopNav.svelte";
   import BottomNav from "$lib/components/BottomNav.svelte";
+  import { loadHomeLayoutSettings } from "$lib/settings";
+  import * as actionRealApi from "$lib/api/action";
+  import * as actionMockApi from "$lib/api/action.mock";
+  import Home from "$lib/pages/Home.svelte";
+  import Settings from "$lib/pages/Settings.svelte";
   import "./layout.css";
 
-  let currentPath = $derived(page.url.pathname);
+  const actionApi = dev ? actionMockApi : actionRealApi;
+
+  // Execute immediately with highest priority
+  if (typeof window !== "undefined") {
+    const settings = loadHomeLayoutSettings();
+    actionApi.setEdgeToEdge(settings.edgeToEdge);
+  }
 
   let { children } = $props();
+
+  let currentHash = $state("#/");
+
+  onMount(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash || "#/";
+      currentHash = hash;
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    handleHashChange();
+
+    return () => {
+      window.removeEventListener("hashchange", handleHashChange);
+    };
+  });
 </script>
 
 <div class="app-shell bg-slate-50 dark:bg-black transition-colors">
   <div class="app-topbar">
     <TopNav />
   </div>
-  <div class="app-scroll">
-    {#key currentPath}
-      <div in:fly={{ y: 12, duration: 260, easing: cubicOut }} out:fade={{ duration: 160 }}>
-        {@render children()}
+  {#key currentHash}
+    <div class="app-page-wrapper" in:fly={{ y: 12, duration: 260, delay: 160, easing: cubicOut }} out:fade={{ duration: 160 }}>
+      <div class="app-scroll">
+        {#if currentHash === "#/settings"}
+          <Settings />
+        {:else}
+          <Home />
+        {/if}
       </div>
-    {/key}
-  </div>
+    </div>
+  {/key}
   <div class="app-bottombar">
-    <BottomNav bind:currentPath />
+    <BottomNav bind:currentPath={currentHash} />
   </div>
+  {@render children?.()}
 </div>

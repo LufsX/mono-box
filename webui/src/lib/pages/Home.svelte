@@ -13,6 +13,8 @@
   import SystemStats from "$lib/components/SystemStats.svelte";
   import ProxyMode from "$lib/components/ProxyMode.svelte";
   import LogTerminal from "$lib/components/LogTerminal.svelte";
+  import { ExternalLink } from "@lucide/svelte";
+  import { loadHomeLayoutSettings, type HomeModuleId } from "$lib/settings";
 
   const clashApi = dev ? clashMockApi : clashRealApi;
   const actionApi = dev ? actionMockApi : actionRealApi;
@@ -21,6 +23,8 @@
   let tunEnabled = $state(false);
   let coreConfig = $state<any>(null);
   let refreshing = $state(false);
+  let homeLayout = $state(loadHomeLayoutSettings());
+  let defaultPanelUrl = $state("http://127.0.0.1:9090/ui");
 
   type LogType = "info" | "success" | "error" | "cmd";
   let logs = $state<{ time: string; msg: string; type: LogType }[]>([]);
@@ -68,6 +72,34 @@
     } catch (err) {
       console.error("Failed to fetch status:", err);
       addLog(`Failed to fetch status: ${err}`, "error");
+    }
+  }
+
+  async function loadPanelDefaultUrl() {
+    try {
+      const content = await clashApi.readBoxConfig();
+      const parsed = clashApi.parseBoxConfig(content);
+      defaultPanelUrl = `http://127.0.0.1:${parsed.clashApiPort}/ui`;
+    } catch {
+      defaultPanelUrl = "http://127.0.0.1:9090/ui";
+    }
+  }
+
+  function isModuleVisible(moduleId: HomeModuleId): boolean {
+    return !homeLayout.hiddenModules.includes(moduleId);
+  }
+
+  function getPanelUrl(): string {
+    return homeLayout.panelUrl.trim() || defaultPanelUrl;
+  }
+
+  async function openPanel() {
+    const url = getPanelUrl();
+    addLog(`Opening panel: ${url}`, "cmd");
+    try {
+      await actionApi.openExternalUrl(url);
+    } catch (e: any) {
+      addLog(e.message || String(e), "error");
     }
   }
 
@@ -146,12 +178,12 @@
   onMount(() => {
     (async () => {
       try {
-        await actionApi.setEdgeToEdge(true);
+        homeLayout = loadHomeLayoutSettings();
+        await loadPanelDefaultUrl();
 
         addLog("Initializing WebUI...", "info");
         await execute("status");
         await fetchStatus();
-
       } catch (e) {
         console.error("Initialization error:", e);
       }
@@ -160,29 +192,61 @@
 </script>
 
 <main class="relative max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
-  <div in:fly={{ y: 14, duration: 280, delay: 20, easing: cubicOut }}>
-    <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} onRefresh={handleRefresh} {refreshing} />
-  </div>
+  {#each homeLayout.moduleOrder as moduleId, index (moduleId)}
+    {#if moduleId === "tun" && isModuleVisible("tun")}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} onRefresh={handleRefresh} {refreshing} />
+      </div>
+    {/if}
 
-  <div in:fly={{ y: 14, duration: 280, delay: 60, easing: cubicOut }}>
-    <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />
-  </div>
+    {#if moduleId === "proxy" && isModuleVisible("proxy")}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />
+      </div>
+    {/if}
 
-  <div in:fly={{ y: 14, duration: 280, delay: 140, easing: cubicOut }}>
-    <SystemStats />
-  </div>
+    {#if moduleId === "stats" && isModuleVisible("stats")}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <SystemStats />
+      </div>
+    {/if}
 
-  {#if coreConfig}
-    <div in:fly={{ y: 14, duration: 280, delay: 100, easing: cubicOut }}>
-      <CoreInfo config={coreConfig} />
-    </div>
-  {/if}
+    {#if moduleId === "service" && isModuleVisible("service")}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <ServiceActions onAction={runAction} />
+      </div>
+    {/if}
 
-  <div in:fly={{ y: 14, duration: 280, delay: 180, easing: cubicOut }}>
-    <ServiceActions onAction={runAction} />
-  </div>
+    {#if moduleId === "panel" && isModuleVisible("panel")}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
+          <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950">
+            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">跳转内核面板</h2>
+          </div>
+          <div class="p-4">
+            <button
+              class="w-full inline-flex items-center justify-center gap-2 border border-slate-300 dark:border-zinc-700 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 active:bg-slate-200 dark:active:bg-zinc-700 transition-colors outline-none"
+              onclick={openPanel}
+            >
+              <ExternalLink size={16} />
+              打开内核面板
+            </button>
+            <div class="mt-2 text-xs text-slate-500 dark:text-slate-400 break-all">{getPanelUrl()}</div>
+          </div>
+        </section>
+      </div>
+    {/if}
 
-  <div in:fly={{ y: 14, duration: 280, delay: 220, easing: cubicOut }}>
-    <LogTerminal bind:logs />
-  </div>
+    {#if moduleId === "core" && isModuleVisible("core") && coreConfig}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <CoreInfo config={coreConfig} />
+      </div>
+    {/if}
+
+    {#if moduleId === "log" && isModuleVisible("log")}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+        <LogTerminal bind:logs />
+      </div>
+    {/if}
+  {/each}
 </main>

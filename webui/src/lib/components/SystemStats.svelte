@@ -136,22 +136,20 @@
     </div>
 
     <!-- 累计流量 -->
-    {#if uploadTotal !== null || downloadTotal !== null}
-      <div class="h-px bg-slate-200 dark:bg-zinc-800 w-full"></div>
-      <div class="grid grid-cols-2 gap-4">
-        <div class="flex flex-col">
-          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">累计上传</span>
-          <span class="text-xs font-mono text-slate-600 dark:text-slate-400">
-            {uploadTotal !== null ? formatBytes(uploadTotal) : "-"}
-          </span>
-        </div>
-        <div class="flex flex-col">
-          <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">累计下载</span>
-          <span class="text-xs font-mono text-slate-600 dark:text-slate-400">
-            {downloadTotal !== null ? formatBytes(downloadTotal) : "-"}
-          </span>
-        </div>
+    <div class="h-px bg-slate-200 dark:bg-zinc-800 w-full"></div>
+    <div class="grid grid-cols-2 gap-4">
+      <div class="flex flex-col">
+        <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">累计上传</span>
+        <span class="text-xs font-mono text-slate-600 dark:text-slate-400">
+          {uploadTotal !== null ? formatBytes(uploadTotal) : "-"}
+        </span>
       </div>
-    {/if}
+      <div class="flex flex-col">
+        <span class="text-[10px] font-bold tracking-wider text-slate-400 dark:text-zinc-500">累计下载</span>
+        <span class="text-xs font-mono text-slate-600 dark:text-slate-400">
+          {downloadTotal !== null ? formatBytes(downloadTotal) : "-"}
+        </span>
+      </div>
+    </div>
   </div>
 </section>

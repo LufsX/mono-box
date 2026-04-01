@@ -32,11 +32,18 @@
     height: 100%;
     overflow: hidden;
     position: relative;
-    display: grid;
-    grid-template-rows: 1fr;
+    display: block; /* changed from grid to allow absolute children */
+  }
+
+  .app-page-wrapper {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
   }
 
   .app-scroll {
+    flex: 1;
     box-sizing: border-box;
     min-height: 0;
     min-width: 0;

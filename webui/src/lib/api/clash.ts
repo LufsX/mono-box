@@ -20,6 +20,9 @@ export interface TrafficData {
 export interface BoxConfigValues {
   clashApiPort: number;
   clashApiSecret: string;
+  toggleAction: "service" | "tun" | "mode_cycle";
+  toggleTunTarget: "toggle" | "on" | "off";
+  toggleModeCycle: ("rule" | "global" | "direct")[];
 }
 
 let cachedConfig: ClashConfig | null = null;
@@ -43,10 +46,36 @@ function formatExecFailure(action: string, result: { errno: number; stdout?: str
 function parseBoxConfigContent(content: string): BoxConfigValues {
   const portMatch = content.match(/^clash_api_port=(\d+)\s*$/m);
   const secretMatch = content.match(/^clash_api_secret=(.*)$/m);
+  const toggleActionMatch = content.match(/^toggle_action=(.*)$/m);
+  const toggleTunTargetMatch = content.match(/^toggle_tun_target=(.*)$/m);
+  const toggleModeCycleMatch = content.match(/^toggle_mode_cycle=(.*)$/m);
+
+  const toggleActionRaw = toggleActionMatch ? toggleActionMatch[1].replace(/"/g, "").trim() : "service";
+  const toggleTunTargetRaw = toggleTunTargetMatch ? toggleTunTargetMatch[1].replace(/"/g, "").trim() : "toggle";
+  const toggleModeCycleRaw = toggleModeCycleMatch ? toggleModeCycleMatch[1].replace(/"/g, "").trim() : "rule,global,direct";
+
+  const toggleAction = ["service", "tun", "mode_cycle"].includes(toggleActionRaw) ? (toggleActionRaw as "service" | "tun" | "mode_cycle") : "service";
+
+  const toggleTunTarget = ["toggle", "on", "off"].includes(toggleTunTargetRaw) ? (toggleTunTargetRaw as "toggle" | "on" | "off") : "toggle";
+
+  const modeSet = new Set<"rule" | "global" | "direct">();
+  for (const mode of toggleModeCycleRaw.split(",")) {
+    const normalized = mode.trim().toLowerCase();
+    if (normalized === "rule" || normalized === "global" || normalized === "direct") {
+      modeSet.add(normalized);
+    }
+  }
+  const toggleModeCycle = [...modeSet];
+  if (!toggleModeCycle.length) {
+    toggleModeCycle.push("rule", "global", "direct");
+  }
 
   return {
     clashApiPort: portMatch ? parseInt(portMatch[1], 10) : 9090,
     clashApiSecret: secretMatch ? secretMatch[1].trim() : "",
+    toggleAction,
+    toggleTunTarget,
+    toggleModeCycle,
   };
 }
 
@@ -324,4 +353,3 @@ export async function updateBoxConfigValues(updates: Record<string, string>): Pr
     throw new Error(getErrorMessage(e));
   }
 }
-

@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { Home, Settings } from "@lucide/svelte";
+  import { House, Settings } from "@lucide/svelte";
 
   let { currentPath = $bindable() }: { currentPath: string } = $props();
 
   const navItems = [
-    { href: "/", label: "首页", icon: Home },
-    { href: "/settings", label: "设置", icon: Settings },
+    { href: "#/", label: "首页", icon: House },
+    { href: "#/settings", label: "设置", icon: Settings },
   ] as const;
 
   function linkClass(href: string): string {
