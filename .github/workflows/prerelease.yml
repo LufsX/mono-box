@@ -7,8 +7,6 @@ on:
       - ".github/**"
       - "README.md"
       - "README_zh.md"
-      - "update.json"
-      - "changelog.md"
     tags-ignore:
       - "v*"
 
@@ -58,7 +56,7 @@ jobs:
             echo
             echo "Auto-generated from latest commits."
             echo
-            git log -n 30 --pretty=format:'- %s (%h)'
+            git log -n 15 --pretty=format:'- %s (%h)'
             echo
           } > prerelease-changelog.md
 
@@ -69,12 +67,12 @@ jobs:
           tag: Prerelease
           deleteOnlyFromDrafts: false
 
-      - name: Tag Repo
-        uses: richardsimko/update-tag@v1
-        with:
-          tag_name: Prerelease
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Tag Repo
+      #   uses: richardsimko/update-tag@v1
+      #   with:
+      #     tag_name: Prerelease
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Prerelease
         uses: softprops/action-gh-release@v1
