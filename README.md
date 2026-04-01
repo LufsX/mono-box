@@ -19,6 +19,31 @@ Current scope:
 - Runtime model: bare-core only (start, stop, restart, status)
 - Optional network-event linkage through Clash API mode/selector switching
 
+## WEB UI Support
+
+Mono Box provides WEB UI management panel for convenient control. Key features include:
+
+- **Network Takeover & Core Control**
+  - Toggle TUN mode (on/off), view current network takeover status
+  - Online update of Mihomo core via built-in API
+  - Quick access to core panel
+- **Proxy Mode Selection**
+  - Switch between RULE, GLOBAL, DIRECT modes
+- **System Resource Monitoring**
+  - Real-time memory usage, upload/download speed, total traffic
+- **Core Status & Ports**
+  - View core ports and core version
+- **Quick Control Actions**
+  - Start, Stop, Restart, Status for the core
+- **box.config Configuration**
+  - Edit Clash API port, secret, and toggle service behavior
+- **WEB UI Settings**
+  - Enable edge-to-edge immersive mode
+  - Customize core panel jump URL
+  - Configure homepage module display and order
+- **Terminal Logs**
+  - View real-time logs and service output
+
 ## Install
 
 1. Download the latest module from Releases:
@@ -118,4 +143,4 @@ To remove data manually:
 
 - [x] WEB UI Management Panel
 - [x] Clash API Switch to TUN Mode
-- [ ] Action.sh Supports Custom Execution Actions in WEB UI
+- [x] Action.sh Supports Custom Execution Actions in WEB UI

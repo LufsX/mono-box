@@ -1,7 +1,7 @@
 id=mono_box
 name=Mono Box
 version=v6.1
-versionCode=2026033100
+versionCode=2026040119
 author=LufsX, CHIZI-0618
 description=Use mihomo on Android devices.
 updateJson=https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json

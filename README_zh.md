@@ -19,6 +19,31 @@ Mono Box 是一个面向 Android 的 Magisk / KernelSU / APatch 模块，专注�
 - 运行模式：仅裸核运行（start/stop/restart/status）
 - 可选能力：基于 Clash API 的联网事件联动（切换 selector 或 mode）
 
+## WEB UI 支持
+
+Mono Box 提供一个 WEB UI 管理面板，功能包括：
+
+- **网络接管与内核控制**
+  - TUN 模式一键开关，显示当前网络接管状态
+  - 内核在线更新，调用 Mihomo 内置 API
+  - 快捷跳转内核面板
+- **代理模式选择**
+  - 支持 RULE、GLOBAL、DIRECT 模式切换
+- **系统资源监控**
+  - 实时显示内存占用、上传/下载速度、累计流量
+- **核心状态与端口**
+  - 查看核心端口及核心版本
+- **快速控制指令**
+  - 启动、停止、重启、状态一键操作
+- **box.config 配置**
+  - 编辑 Clash API 端口、密钥，切换服务开关行为
+- **WEB UI 设置**
+  - 启用沉浸式全面屏（Edge-to-Edge）
+  - 自定义内核面板跳转 URL
+  - 首页模块显示与排序
+- **Terminal Logs**
+  - 实时查看日志与服务输出
+
 ## 安装
 
 1. 从 Releases 下载最新模块：
@@ -116,4 +141,4 @@ Action 控制：
 
 - [x] WEB UI 管理面板
 - [x] Clash API 切换 TUN 模式
-- [ ] Action.sh 支持在 WEB UI 中自定义执行动作
+- [x] Action.sh 支持在 WEB UI 中自定义执行动作
