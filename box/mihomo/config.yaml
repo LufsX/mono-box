@@ -1,175 +1,296 @@
-mixed-port: 7890
-redir-port: 7891
-tproxy-port: 1536
-ipv6: false
-allow-lan: false
-unified-delay: false
-tcp-concurrent: true
-external-controller: 127.0.0.1:9090
+# 本配置文件地址: https://ruleset.isteed.cc/Config/mihomo.yaml
+
+# 食用说明：
+# 将下方的 https://example.com/sub 替换为 你的订阅地址
+
+proxy-providers:
+  ProxyList:
+    url: https://example.com/sub
+    # override: {additional-prefix: '[节点前缀] '}
+    type: http
+    interval: 86400
+    health-check: { enable: true, interval: 1800, url: http://cp.cloudflare.com/generate_204 }
+
+  # # 若有多个订阅地址，可按如下格式添加
+  # ProxyList1:
+  #   url: https://example.com/sub
+  #   # override: {additional-prefix: '[节点前缀1] '}
+  #   type: http
+  #   interval: 86400
+  #   health-check: { enable: true, interval: 1800, url: http://cp.cloudflare.com/generate_204 }
+
+# port: 7890 # HTTP(S) 代理服务器端口
+# socks-port: 7891 # SOCKS5 代理端口
+mixed-port: 7767 # HTTP(S) 和 SOCKS 代理混合端口
+redir-port: 7766 # 透明代理端口，用于 Linux 和 MacOS
+
+# Transparent proxy server port for Linux (TProxy TCP and TProxy UDP)
+tproxy-port: 7765
+
+allow-lan: true # 允许局域网连接
+bind-address: "*" # 绑定 IP 地址，仅作用于 allow-lan 为 true，'*'表示所有地址
+# authentication: # http,socks 入口的验证用户名，密码
+#   - "username:password"
+# skip-auth-prefixes: # 设置跳过验证的 IP 段
+#   - 127.0.0.1/8
+#   - ::1/128
+# lan-allowed-ips: # 允许连接的 IP 地址段，仅作用于 allow-lan 为 true, 默认值为 0.0.0.0/0 和::/0
+#   - 0.0.0.0/0
+#   - ::/0
+# lan-disallowed-ips: # 禁止连接的 IP 地址段，黑名单优先级高于白名单，默认值为空
+#   - 192.168.0.3/32
+
+mode: rule
+
+log-level: info # 日志等级 silent/error/warning/info/debug
+
+ipv6: true # 开启 IPv6 总开关，关闭阻断所有 IPv6 链接和屏蔽 DNS 请求 AAAA 记录
+udp: true # UDP 支持
+keep-alive-interval: 1800 # 缓解保持唤醒问题
+
+external-controller: 127.0.0.1:9090 # RESTful API 监听地址
+# external-controller-tls: 0.0.0.0:9443 # RESTful API HTTPS 监听地址，需要配置 tls 部分配置文件
+# secret: "1145141919810" # `Authorization:Bearer ${secret}`
+
+# RESTful API CORS标头配置
+# external-controller-cors:
+#   allow-origins:
+#     - "*"
+#   allow-private-network: true
+
+# 配置 WEB UI 目录，使用 http://{{external-controller}}/ui 访问
 external-ui: ui
-external-ui-url: "https://github.com/MetaCubeX/metacubexd/archive/refs/heads/gh-pages.zip"
+# external-ui-name: zashboard
+# 目前支持下载zip,tgz格式的压缩包
+external-ui-url: "https://cors.isteed.cc/https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
 
-find-process-mode: always
+# 全局 TLS 指纹，优先低于 proxy 内的 client-fingerprint
+# 可选： "chrome","firefox","safari","ios","random","none" options.
+# Utls is currently support TLS transport in TCP/grpc/WS/HTTP for VLESS/Vmess and trojan.
+# global-client-fingerprint: edge
+# 统一延迟
+unified-delay: true
+# TCP 并发连接
+tcp-concurrent: true
 
-profile:
+profile: # 存储 select 选择记录
   store-selected: true
+  # 持久化 fake-ip
   store-fake-ip: true
 
-sniffer:
-  enable: false
-  sniff:
-    HTTP:
-      ports: [80, 8080-8880]
-      override-destination: true
-    TLS:
-      ports: [443, 8443]
-    QUIC:
-      ports: [443, 8443]
-  skip-domain:
-    - "Mijia Cloud"
-    - "+.push.apple.com"
-
+# Tun 配置
 tun:
   enable: true
-  stack: system
-  device: tun0
+  stack: mixed # gvisor/system/mixed
   dns-hijack:
-    - "any:53"
-    - "tcp://any:53"
-  auto-route: true
-  auto-redirect: false
-  strict-route: true
-  auto-detect-interface: true
+    - any:53 # 需要劫持的 DNS
+  auto-detect-interface: true # 自动识别出口网卡
+  auto-route: true # 配置路由表
+  # mtu: 9000 # 最大传输单元
+  # gso: false # 启用通用分段卸载，仅支持 Linux
+  # gso-max-size: 65536 # 通用分段卸载包的最大大小
+  # auto-redirect: false # 自动配置 iptables 以重定向 TCP 连接。仅支持 Linux。带有 auto-redirect 的 auto-route 现在可以在路由器上按预期工作，无需干预。
+  # strict-route: true # 将所有连接路由到 tun 来防止泄漏，但你的设备将无法其他设备被访问
+  # route-address-set: # 将指定规则集中的目标 IP CIDR 规则添加到防火墙, 不匹配的流量将绕过路由, 仅支持 Linux，且需要 nftables，`auto-route` 和 `auto-redirect` 已启用。
+  #   - ruleset-1
+  #   - ruleset-2
   route-exclude-address:
     - 192.168.42.0/24
     - 192.168.43.0/24
     - 192.168.44.0/24
-  exclude-interface:
+  # route-exclude-address-set: # 将指定规则集中的目标 IP CIDR 规则添加到防火墙, 匹配的流量将绕过路由, 仅支持 Linux，且需要 nftables，`auto-route` 和 `auto-redirect` 已启用。
+  #   - ruleset-3
+  #   - ruleset-4
+  # route-address: # 启用 auto-route 时使用自定义路由而不是默认路由
+  #   - 0.0.0.0/1
+  #   - 128.0.0.0/1
+  #   - "::/1"
+  #   - "8000::/1"
+  # inet4-route-address: # 启用 auto-route 时使用自定义路由而不是默认路由（旧写法）
+  #   - 0.0.0.0/1
+  #   - 128.0.0.0/1
+  # inet6-route-address: # 启用 auto-route 时使用自定义路由而不是默认路由（旧写法）
+  #   - "::/1"
+  #   - "8000::/1"
+  # endpoint-independent-nat: false # 启用独立于端点的 NAT
+  # include-interface: # 限制被路由的接口。默认不限制，与 `exclude-interface` 冲突
+  #   - "lan0"
+  exclude-interface: # 排除路由的接口，与 `include-interface` 冲突
     - wlan2
     - rndis+
+  # include-uid: # UID 规则仅在 Linux 下被支持，并且需要 auto-route
+  # - 0
+  # include-uid-range: # 限制被路由的的用户范围
+  # - 1000:9999
+  # exclude-uid: # 排除路由的的用户
+  # - 1000
+  # exclude-uid-range: # 排除路由的的用户范围
+  # - 1000:9999
 
-dns:
+  # # Android 用户和应用规则仅在 Android 下被支持
+  # # 并且需要 auto-route
+
+  # include-android-user: # 限制被路由的 Android 用户
+  # - 0
+  # - 10
+  # include-package: # 限制被路由的 Android 应用包名
+  # - com.android.chrome
+  # exclude-package: # 排除被路由的 Android 应用包名
+  # - com.android.captiveportallogin
+
+# 嗅探域名 可选配置
+sniffer:
   enable: true
-  listen: 0.0.0.0:1053
-  ipv6: false
-  respect-rules: true
-  enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.0/15
-  fake-ip-filter:
-    - "*"
-    - "+.lan"
-    - "+.local"
-    - "+.market.xiaomi.com"
-    - "localhost.ptlogin2.qq.com"
-  default-nameserver:
-    - https://120.53.53.53/dns-query
-    - https://223.5.5.5/dns-query
-  proxy-server-nameserver:
-    - https://120.53.53.53/dns-query
-    - https://223.5.5.5/dns-query
-  nameserver:
-    - https://dns.cloudflare.com/dns-query
-    - https://dns.google/dns-query
-  nameserver-policy:
-    "rule-set:private-domain,alibaba,category-games@cn,cn-domain":
-      - https://120.53.53.53/dns-query
-      - https://223.5.5.5/dns-query
+  ## 对 redir-host 类型识别的流量进行强制嗅探
+  ## 如：Tun、Redir 和 TProxy 并 DNS 为 redir-host 皆属于
+  # force-dns-mapping: true
+  ## 对所有未获取到域名的流量进行强制嗅探
+  # parse-pure-ip: true
+  # 是否使用嗅探结果作为实际访问，默认 true
+  # 全局配置，优先级低于 sniffer.sniff 实际配置
+  # override-destination: true
+  sniff: # TLS 和 QUIC 默认如果不配置 ports 默认嗅探 443
+    QUIC: { ports: [443, 8443] }
+    TLS: { ports: [443, 8443] }
 
-#这里是订阅更新和延迟测试相关
-#可以更改 proxy 指定的出站
-p: &p {type: http, interval: 86400, proxy: "订阅更新", header: {User-Agent: ["mihomo/1.18.3","Clash/v1.18.0"]}, health-check: {enable: true, url: https://cp.cloudflare.com, interval: 18000, lazy: true}}
+    # 默认嗅探 80
+    HTTP: { ports: [80, 8080-8880], override-destination: true } # 需要嗅探的端口，可覆盖 sniffer.override-destination
+  # force-domain:
+  #   - +.v2ex.com
+  # skip-src-address: # 对于来源ip跳过嗅探
+  #   - 192.168.0.3/32
+  # skip-dst-address: # 对于目标ip跳过嗅探
+  #   - 192.168.0.3/32
+  ## 对嗅探结果进行跳过
+  skip-domain: ["Mijia Cloud", "+.push.apple.com"]
 
-# url 里填写自己的订阅链接
-proxy-providers:
-  provider1:
-    <<: *p
-    url: ""
+# DNS 配置
+dns:
+  enable: true # 关闭将使用系统 DNS
+  # prefer-h3: false # 是否开启 DoH 支持 HTTP/3，将并发尝试
+  listen: 0.0.0.0:1053 # 开启 DNS 服务器监听
+  # ipv6: false # false 将返回 AAAA 的空结果
+  # ipv6-timeout: 300 # 单位：ms，内部双栈并发时，向上游查询 AAAA 时，等待 AAAA 的时间，默认 100ms
+  # 用于解析 nameserver，fallback 以及其他 DNS 服务器配置的，DNS 服务域名
+  # 只能使用纯 IP 地址，可使用加密 DNS
+  default-nameserver: [119.29.29.29, 180.184.2.2, 223.6.6.6, system]
+  enhanced-mode: fake-ip # or redir-host
 
-  provider2:
-    <<: *p
-    url: ""
+  fake-ip-range: 198.18.0.1/16 # fake-ip 池设置
+
+  # 配置不使用 fake-ip 的域名
+  # prettier-ignore
+  fake-ip-filter: ["*.126.net", "*.ffxiv.com", "*.finalfantasyxiv.com", "*.home.arpa", "*.invalid", "*.kuwo.cn", "*.lan", "*.linksys.com", "*.linksyssmartwifi.com", "*.local", "*.localhost", "*.mcdn.bilivideo.cn", "*.msftconnecttest.com", "*.msftncsi.com", "*.music.163.com", "*.music.migu.cn", "*.ntp.org.cn", "*.router.asus.com", "*.square-enix.com", "+.battlenet.com.cn", "+.nflxvideo.net", "+.pool.ntp.org", "+.srv.nintendo.net", "+.stun.*.*", "+.stun.*.*.*", "+.stun.*.*.*.*", "+.wargaming.net", "+.wggames.cn", "+.wotgame.cn", "+.wowsgame.cn", "amobile.music.tc.qq.com", "aqqmusic.tc.qq.com", "dl.stream.qqmusic.qq.com", "heartbeat.belkin.com", "isure.stream.qqmusic.qq.com", "lens.l.google.com", "localhost.ptlogin2.qq.com", "localhost.sec.qq.com", "mesu.apple.com", "mobileoc.music.tc.qq.com", "msftconnecttest.com", "msftncsi.com", "ntp.*.*", "ntp1.*.*", "ntp2.*.*", "ntp3.*.*", "ntp4.*.*", "ntp5.*.*", "ntp6.*.*", "ntp7.*.*", "proxy.golang.org", "streamoc.music.tc.qq.com", "stun.*.*", "stun.*.*.*", "stun.l.google.com", "swcdn.apple.com", "swdist.apple.com", "swdownload.apple.com", "swquery.apple.com", "swscan.apple.com", "time.*.*", "time.*.*.*", "time.*.edu.cn", "time.*.gov", "time1.*.*", "time2.*.*", "time3.*.*", "time4.*.*", "time5.*.*", "time6.*.*", "time7.*.*", "time8.*.*", "time9.*.*", "xbox.*.microsoft.com", "xnotify.xboxlive.com"]
+    # fakeip-filter 为 rule-providers 中的名为 fakeip-filter 规则订阅，
+    # 且 behavior 必须为 domain/classical，当为 classical 时仅会生效域名类规则
+    # - rule-set:fakeip-filter
+    # fakeip-filter 为 geosite 中名为 fakeip-filter 的分类（需要自行保证该分类存在）
+    # - geosite:fakeip-filter
+  # 配置fake-ip-filter的匹配模式，默认为blacklist，即如果匹配成功不返回fake-ip
+  # 可设置为whitelist，即只有匹配成功才返回fake-ip
+  fake-ip-filter-mode: blacklist
+
+  # use-hosts: true # 查询 hosts
+
+  # 配置后面的nameserver、fallback和nameserver-policy向dns服务器的连接过程是否遵守遵守rules规则
+  # 如果为false（默认值）则这三部分的dns服务器在未特别指定的情况下会直连
+  # 如果为true，将会按照rules的规则匹配链接方式（走代理或直连），如果有特别指定则任然以指定值为准
+  # 仅当proxy-server-nameserver非空时可以开启此选项, 强烈不建议和prefer-h3一起使用
+  # 此外，这三者配置中的dns服务器如果出现域名会采用default-nameserver配置项解析，也请确保正确配置default-nameserver
+  # respect-rules: false
+
+  # DNS 主要域名配置
+  # 支持 UDP，TCP，DoT，DoH，DoQ
+  # 这部分为主要 DNS 配置，影响所有直连，确保使用对大陆解析精准的 DNS
+  nameserver: [119.29.29.29, 180.184.2.2, 223.6.6.6, tls://dns.pub:853, tls://dns.alidns.com:853, quic://223.6.6.6]
 
 proxies:
-  - name: "直连"
-    type: direct
-    udp: true
-  - name: "DNS_Hijack"
-    type: dns
+  - { name: "𝐷𝑖𝑟𝑒𝑐𝑡", type: direct, udp: true }
+  - { name: "𝑅𝑒𝑗𝑒𝑐𝑡", type: reject }
 
-# 所有策略组内请不要选择 DNS_Hijack 出站
 proxy-groups:
+  # 代理节点选择
+  - { name: "𝑃𝑟𝑜𝑥𝑦", type: select, proxies: [𝐴𝑢𝑡𝑜𝑡𝑒𝑠𝑡, 𝐹𝑎𝑙𝑙𝑏𝑎𝑐𝑘], include-all-providers: true }
+  # 国际流媒体服务
+  - { name: "𝑆𝑡𝑟𝑒𝑎𝑚𝑖𝑛𝑔", type: select, proxies: [𝑃𝑟𝑜𝑥𝑦], include-all-providers: true }
+  # 中国流媒体服务（面向海外版本）
+  # 用于观看部分国内流媒体面向港澳台的地区的限定内容，此处应放港澳台节点，如果没有此需求可删除此处策略组及相关规则
+  - { name: "𝑆𝑡𝑟𝑒𝑎𝑚𝑖𝑛𝑔𝑆𝐸", type: select, proxies: [𝐷𝑖𝑟𝑒𝑐𝑡, 𝑃𝑟𝑜𝑥𝑦], include-all-providers: true, filter: "(?i)(h(ong)?k(ong)?|ta?i?w|macau)|澳门|港|台|🇭🇰|🇲🇴|🇹🇼" }
+  # Telegram 即时通讯
+  - { name: "𝑇𝑒𝑙𝑒𝑔𝑟𝑎𝑚", type: select, proxies: [𝑃𝑟𝑜𝑥𝑦], include-all-providers: true, filter: "(?i)(sg|us|nl|singapore|united|netherland)|新加坡|荷兰|美国|狮城|🇸🇬|🇳🇱|🇺🇸" }
+  - { name: "𝐴𝐼", type: select, proxies: [𝑃𝑟𝑜𝑥𝑦], include-all-providers: true, exclude-filter: "(?i)(h(ong)?k(ong)?)|港|🇭🇰" }
+  # Apple 服务
+  - { name: "𝐴𝑝𝑝𝑙𝑒", type: select, proxies: [𝐷𝑖𝑟𝑒𝑐𝑡, 𝑃𝑟𝑜𝑥𝑦] }
+  # OneDrive 网盘服务
+  - { name: "𝑂𝑛𝑒𝐷𝑟𝑖𝑣𝑒", type: select, proxies: [𝐷𝑖𝑟𝑒𝑐𝑡, 𝑃𝑟𝑜𝑥𝑦] }
+  # 去广告
+  - { name: "𝐺𝑢𝑎𝑟𝑑", type: select, proxies: [𝑅𝑒𝑗𝑒𝑐𝑡, 𝐷𝑖𝑟𝑒𝑐𝑡] }
+  # 白名单模式 PROXY, 黑名单模式 DIRECT, 不知道的话别动
+  - { name: "𝐹𝑖𝑛𝑎𝑙", type: select, proxies: [𝑃𝑟𝑜𝑥𝑦, 𝐷𝑖𝑟𝑒𝑐𝑡] }
+  - { name: "𝐴𝑢𝑡𝑜𝑡𝑒𝑠𝑡", type: url-test, lazy: true, url: "http://cp.cloudflare.com/generate_204", interval: 300, include-all-providers: true }
+  - { name: "𝐹𝑎𝑙𝑙𝑏𝑎𝑐𝑘", type: fallback, lazy: true, url: "http://cp.cloudflare.com/generate_204", interval: 300, include-all-providers: true }
 
-  - name: "默认"
-    type: select
-    proxies: ["直连","自动选择-Fallback","自动选择","全部节点"]
+# 配置锚点（后续好改（
+classical: &classical { type: http, format: text, behavior: classical, interval: 86400 }
+domain: &domain { type: http, format: text, behavior: domain, interval: 86400 }
+mrs-domain: &mrs-domain { type: http, format: mrs, behavior: domain, interval: 86400 }
+mrs-ip: &mrs-ip { type: http, format: mrs, behavior: ipcidr, interval: 86400 }
 
-  - name: "全部节点"
-    type: select
-    include-all: true
-
-  - name: "自动选择"
-    type: url-test
-    include-all: true
-    tolerance: 10
-  
-  - name: "自动选择-Fallback"
-    type: fallback
-    include-all: true
-  
-  # 若出现广告拦截规则导致的访问问题，可切换 REJECT 至 DIRECT 以关闭拦截广告
-  - name: "广告"
-    type: select
-    proxies: [REJECT,DIRECT]
-  
-  # 若出现部分订阅失败问题，可切换可用的代理节点订阅，默认直连
-  - name: "订阅更新"
-    type: select
-    proxies: [DIRECT,"全部节点"]
-
+rule-providers:
+  Unbreak: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/Unbreak.conf }
+  Apple: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/Apple.conf }
+  AppleCDN: { <<: *domain, url: https://ruleset.isteed.cc/List/mihomo/ChinaApple.conf }
+  Streaming: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/Streaming.conf }
+  StreamingSE: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/StreamingSE.conf }
+  Global: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/Global.conf }
+  Guard: { <<: *mrs-domain, url: https://ruleset.isteed.cc/List/mihomo/Guard.mrs }
+  GuardPlus: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/GuardPlus.conf }
+  AI: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/AI.conf }
+  China: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/China.conf }
+  ChinaIP: { <<: *mrs-ip, url: https://ruleset.isteed.cc/List/mihomo/ChinaIP.mrs }
+  ChinaIPv6: { <<: *mrs-ip, url: https://ruleset.isteed.cc/List/mihomo/ChinaIPv6.mrs }
+  Telegram: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/Telegram.conf }
+  OneDrive: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/OneDrive.conf }
+  DirectCustom: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/DirectCustom.conf }
+  ProxyCustom: { <<: *classical, url: https://ruleset.isteed.cc/List/mihomo/ProxyCustom.conf }
 
 rules:
-  - DST-PORT,53,DNS_Hijack
-  
-  - RULE-SET,AWAvenue-Ads,广告
-  - RULE-SET,private-domain,直连
-  - RULE-SET,private-ip,直连,no-resolve
-  - RULE-SET,alibaba,直连
-  - RULE-SET,category-games@cn,直连
-          
-  - RULE-SET,geolocation-!cn,默认
-  
-  - RULE-SET,cn-domain,直连
-  - RULE-SET,cn-ip,直连
-
-  - MATCH,默认
-
-rule-anchor:
-#可以更改 proxy 使用指定的出站，用以下载规则
-  ip: &ip {type: http, interval: 86400, proxy: "默认", behavior: ipcidr, format: mrs}
-  domain: &domain {type: http, interval: 86400, proxy: "默认", behavior: domain, format: mrs}
-rule-providers:
-  "AWAvenue-Ads":
-    <<: *domain
-    url: "https://raw.githubusercontent.com/TG-Twilight/AWAvenue-Ads-Rule/main/Filters/AWAvenue-Ads-Rule-Clash.mrs"
-  "alibaba":
-    <<: *domain
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/alibaba.mrs"
-  "category-games@cn":
-    <<: *domain
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/category-games@cn.mrs"
-  "geolocation-!cn":
-    <<: *domain
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/geolocation-!cn.mrs"
-  "cn-domain":
-    <<: *domain
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/cn.mrs"
-  "private-domain":
-    <<: *domain
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geosite/private.mrs"
-
-  "cn-ip":
-    <<: *ip
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/cn.mrs"
-  "private-ip":
-    <<: *ip
-    url: "https://raw.githubusercontent.com/MetaCubeX/meta-rules-dat/meta/geo/geoip/private.mrs"
+  # Custom
+  - RULE-SET,DirectCustom,DIRECT
+  - RULE-SET,ProxyCustom,𝑃𝑟𝑜𝑥𝑦
+  # Guard
+  - RULE-SET,Guard,𝐺𝑢𝑎𝑟𝑑
+  - RULE-SET,GuardPlus,𝐺𝑢𝑎𝑟𝑑
+  # Unbreak
+  - RULE-SET,Unbreak,DIRECT
+  # Apple
+  - RULE-SET,Apple,𝐴𝑝𝑝𝑙𝑒
+  # Apple CDN
+  - RULE-SET,AppleCDN,DIRECT
+  # Chat AI
+  - RULE-SET,AI,𝐴𝐼
+  # Telegram
+  - RULE-SET,Telegram,𝑇𝑒𝑙𝑒𝑔𝑟𝑎𝑚
+  # OneDrive
+  - RULE-SET,OneDrive,𝑂𝑛𝑒𝐷𝑟𝑖𝑣𝑒
+  # (Streaming Media)
+  - RULE-SET,Streaming,𝑆𝑡𝑟𝑒𝑎𝑚𝑖𝑛𝑔
+  # (StreamingSE)
+  - RULE-SET,StreamingSE,𝑆𝑡𝑟𝑒𝑎𝑚𝑖𝑛𝑔𝑆𝐸
+  # (DNS Cache Pollution) / (IP Blackhole) / (Region-Restricted Access Denied) / (Network Jitter)
+  - RULE-SET,Global,𝑃𝑟𝑜𝑥𝑦
+  # China Area Network
+  - RULE-SET,China,DIRECT
+  # Local Area Network
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+  - IP-CIDR,100.64.0.0/10,DIRECT
+  - IP-CIDR,224.0.0.0/4,DIRECT
+  - IP-CIDR,fe80::/10,DIRECT
+  - RULE-SET,ChinaIP,DIRECT
+  - RULE-SET,ChinaIPv6,DIRECT
+  # GeoIP China
+  # - GEOIP,CN,DIRECT
+  - MATCH,𝐹𝑖𝑛𝑎𝑙
