@@ -4,7 +4,8 @@
   import { onDestroy, onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
-  import { ArrowDown, ArrowUp, Check, ChevronRight, Loader, Save } from "@lucide/svelte";
+  import { ArrowDown, ArrowUp, Check, ChevronRight, Save } from "@lucide/svelte";
+  import CheckBox from "$lib/components/CheckBox.svelte";
   import * as clashRealApi from "$lib/api/clash";
   import * as clashMockApi from "$lib/api/clash.mock";
   import * as actionRealApi from "$lib/api/action";
@@ -314,13 +315,13 @@
             <div class="text-sm font-bold text-slate-900 dark:text-slate-200">循环顺序</div>
             <div class="space-y-2">
               {#each toggleModeCycle as mode, index (mode)}
-                <div class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-2 py-1.5">
+                <div class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-2 py-1.5 bg-white dark:bg-zinc-950/50">
                   <span class="text-xs font-bold text-slate-700 dark:text-slate-300">{index + 1}. {proxyModeLabels[mode]}</span>
                   <div class="flex items-center gap-1">
                     <button
                       type="button"
                       onclick={() => moveToggleModeCycle(index, -1)}
-                      class="inline-flex items-center justify-center p-1 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40"
+                      class="inline-flex items-center justify-center p-1 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800"
                       disabled={index === 0 || boxConfigLoading}
                       aria-label="上移"
                     >
@@ -329,7 +330,7 @@
                     <button
                       type="button"
                       onclick={() => moveToggleModeCycle(index, 1)}
-                      class="inline-flex items-center justify-center p-1 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40"
+                      class="inline-flex items-center justify-center p-1 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800"
                       disabled={index === toggleModeCycle.length - 1 || boxConfigLoading}
                       aria-label="下移"
                     >
@@ -386,10 +387,9 @@
 
       <div class="flex flex-col gap-2">
         <label for="edge-to-edge" class="text-sm font-bold text-slate-900 dark:text-slate-200">启用沉浸式全面屏 (Edge-to-Edge)</label>
-        <label for="edge-to-edge" class="flex items-center gap-3 border border-slate-300 dark:border-zinc-700 px-3 py-2 cursor-pointer select-none">
-          <input id="edge-to-edge" type="checkbox" bind:checked={homeLayout.edgeToEdge} class="h-4 w-4 accent-slate-800 dark:accent-slate-200" />
-          <span class="text-sm font-bold text-slate-800 dark:text-slate-200">跟随系统手势区域扩展内容</span>
-        </label>
+
+        <CheckBox id="edge-to-edge" checked={homeLayout.edgeToEdge} onchange={() => (homeLayout.edgeToEdge = !homeLayout.edgeToEdge)} label="跟随系统手势区域扩展内容" />
+
         <span class="text-xs text-slate-500 dark:text-slate-400">启用后将由系统处理状态栏和底部手势区域的沉浸显示</span>
       </div>
 
@@ -412,16 +412,13 @@
       <div class="space-y-2">
         <p class="text-sm font-bold text-slate-900 dark:text-slate-200">首页模块显示与排序</p>
         {#each homeLayout.moduleOrder as moduleId, index (moduleId)}
-          <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2">
-            <div class="flex items-center gap-3">
-              <input id={`module-${moduleId}`} type="checkbox" checked={isModuleVisible(moduleId)} onchange={() => toggleModuleVisible(moduleId)} class="h-4 w-4" />
-              <label for={`module-${moduleId}`} class="text-sm font-bold text-slate-800 dark:text-slate-200">{moduleLabels[moduleId]}</label>
-            </div>
+          <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50">
+            <CheckBox id={`module-${moduleId}`} checked={isModuleVisible(moduleId)} onchange={() => toggleModuleVisible(moduleId)} label={moduleLabels[moduleId]} bare />
             <div class="flex items-center gap-1">
               <button
                 type="button"
                 onclick={() => moveModule(index, -1)}
-                class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40"
+                class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
                 disabled={index === 0}
                 aria-label="上移"
               >
@@ -430,7 +427,7 @@
               <button
                 type="button"
                 onclick={() => moveModule(index, 1)}
-                class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40"
+                class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors"
                 disabled={index === homeLayout.moduleOrder.length - 1}
                 aria-label="下移"
               >
@@ -475,14 +472,18 @@
     </div>
   </section>
 
-  <section in:fly={{ y: 12, duration: 260, delay: 80, easing: cubicOut }} class="bg-white/88 dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 backdrop-blur-sm">
+  <section in:fly={{ y: 12, duration: 260, delay: 80, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
     <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950">
       <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">关于</h2>
     </div>
-    <button type="button" class="w-full p-4 text-left text-sm text-slate-600 dark:text-slate-400 cursor-pointer" onclick={() => openSupportLink("https://github.com/LufsX/mono-box")}>
+    <button
+      type="button"
+      class="w-full p-4 text-left text-sm text-slate-600 dark:text-slate-400 cursor-pointer hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors"
+      onclick={() => openSupportLink("https://github.com/LufsX/mono-box")}
+    >
       <div class="flex items-center justify-between gap-3">
         <div class="space-y-2">
-          <p>Mono Box {currentVersion}{currentVersionCode ? ` (${currentVersionCode})` : ""}</p>
+          <p class="font-bold text-slate-800 dark:text-slate-200">Mono Box {currentVersion}{currentVersionCode ? ` (${currentVersionCode})` : ""}</p>
           <p class="text-xs">基于 Mihomo 核心的代理工具</p>
         </div>
         <ChevronRight size={18} class="text-slate-400 dark:text-zinc-500" aria-hidden="true" />
