@@ -23,6 +23,18 @@ export interface BoxConfigValues {
   toggleModeCycle: ("rule" | "global" | "direct")[];
 }
 
+export type ClashVersionCheckResult =
+  | {
+      ok: true;
+      version: string;
+      meta: boolean;
+    }
+  | {
+      ok: false;
+      reason: "unauthorized" | "unreachable" | "invalid-response";
+      message: string;
+    };
+
 let mockMode = "rule";
 let mockTunEnabled = false;
 let mockBoxConfig = 'clash_api_port=9090\nclash_api_secret=\ntoggle_action="service"\ntoggle_tun_target="toggle"\ntoggle_mode_cycle="rule,global,direct"\n';
@@ -217,6 +229,25 @@ export async function getProxy(name: string): Promise<any> {
 
 export async function checkStatus(): Promise<boolean> {
   return true;
+}
+
+export async function checkVersion(options?: { port?: number; secret?: string }): Promise<ClashVersionCheckResult> {
+  const parsed = parseBoxConfig(mockBoxConfig);
+  const incomingSecret = (options?.secret ?? parsed.clashApiSecret).trim();
+
+  if (incomingSecret !== "") {
+    return {
+      ok: false,
+      reason: "unauthorized",
+      message: "Clash API 认证失败，请检查 Secret",
+    };
+  }
+
+  return {
+    ok: true,
+    version: "v1.19.21",
+    meta: true,
+  };
 }
 
 export function clearConfigCache(): void {

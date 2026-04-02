@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ThemeSelector from "./ThemeSelector.svelte";
+  import { roundedStore } from "$lib/settings";
 
   let {
     title = "Mono Box",
@@ -10,6 +11,8 @@
 
   let theme = $state<"system" | "light" | "dark">("system");
   let themeDropdownOpen = $state(false);
+
+  const r = $derived($roundedStore);
 
   function applyTheme(t: "system" | "light" | "dark") {
     const isDark = t === "dark" || (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
@@ -38,11 +41,11 @@
       mediaQuery.removeEventListener("change", handleThemeChange);
     };
   });
-
 </script>
 
 <nav
-  class="box-border w-full bg-white/44 dark:bg-zinc-950/42 backdrop-blur border-b border-slate-200/55 dark:border-zinc-800/55 flex items-center justify-between px-4 z-40 shadow-[0_8px_26px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.32)] transition-colors overflow-hidden relative"
+  class="box-border w-full bg-white/44 dark:bg-zinc-950/42 backdrop-blur border-b border-slate-200/55 dark:border-zinc-800/55 flex items-center justify-between px-4 z-40 shadow-[0_8px_26px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.32)] transition-colors overflow-hidden relative
+  {r ? 'rounded-b-xl' : ''}"
   style="padding-top: var(--app-topbar-safe, env(safe-area-inset-top, 0px)); height: var(--app-topbar-height, calc(3.5rem + env(safe-area-inset-top, 0px)));"
 >
   <div class="pointer-events-none absolute inset-0 bg-linear-to-b from-white/14 via-white/8 to-transparent dark:from-white/5 dark:via-white/2"></div>

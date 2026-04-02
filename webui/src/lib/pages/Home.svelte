@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
   import { dev } from "$app/environment";
@@ -13,15 +13,21 @@
   import SystemStats from "$lib/components/SystemStats.svelte";
   import ProxyMode from "$lib/components/ProxyMode.svelte";
   import LogTerminal from "$lib/components/LogTerminal.svelte";
+  import KernelAuthNotice from "$lib/components/KernelAuthNotice.svelte";
   import { ExternalLink } from "@lucide/svelte";
-  import { loadHomeLayoutSettings, type HomeModuleId } from "$lib/settings";
+  import { loadHomeLayoutSettings, roundedStore, type HomeModuleId } from "$lib/settings";
 
   const clashApi = dev ? clashMockApi : clashRealApi;
+  const r = $derived($roundedStore);
   const actionApi = dev ? actionMockApi : actionRealApi;
 
   let proxyMode = $state("rule");
   let tunEnabled = $state(false);
   let coreConfig = $state<any>(null);
+  let coreVersion = $state("-");
+  let coreApiError = $state("");
+  let coreApiConnected = $state<boolean | null>(null);
+  let startingFromNotice = $state(false);
   let refreshing = $state(false);
   let homeLayout = $state(loadHomeLayoutSettings());
   let defaultPanelUrl = $state("http://127.0.0.1:9090/ui");
@@ -40,23 +46,38 @@
     logs = [...logs];
   }
 
+  function setCoreApiFailure(message: string) {
+    coreVersion = "-";
+    coreApiError = message;
+    coreApiConnected = false;
+  }
+
   async function execute(actionCmd: string) {
     addLog(`> /data/adb/modules/mono_box/action.sh ${actionCmd}`, "cmd");
+    addLog("[Executing] Waiting for KernelSU to return results...", "info");
+
+    await tick();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const startedAt = Date.now();
 
     try {
       const result = await actionApi.runActionScript(actionCmd);
+      const elapsedMs = Date.now() - startedAt;
 
       const raw = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
       const isError = result.errno !== 0;
 
       if (raw) {
-        addLog(raw, isError ? "error" : "info");
+        addLog(`[Action] ${raw}`, isError ? "error" : "info");
       }
+      addLog(`[Info] Execution time: ${elapsedMs} ms`, "info");
 
       return { success: !isError, errno: result.errno, raw };
     } catch (e: any) {
+      const elapsedMs = Date.now() - startedAt;
       const errMsg = e.message || String(e);
       addLog(errMsg, "error");
+      addLog(`[Info] Execution time: ${elapsedMs} ms`, "info");
       return { success: false, errno: -1, raw: errMsg };
     }
   }
@@ -70,8 +91,23 @@
         tunEnabled = config.tun.enable;
       }
     } catch (err) {
-      console.error("Failed to fetch status:", err);
-      addLog(`Failed to fetch status: ${err}`, "error");
+      addLog(`[Core] Failed to fetch status: ${err}`, "error");
+      coreConfig = null;
+    }
+
+    try {
+      const versionResult = await clashApi.checkVersion();
+      if (versionResult.ok) {
+        coreVersion = versionResult.version;
+        coreApiError = "";
+        coreApiConnected = true;
+      } else if (versionResult.reason === "unauthorized") {
+        setCoreApiFailure("Clash API 认证失败，请前往设置检查 Clash API Port 与 Secret");
+      } else {
+        setCoreApiFailure("未连接到内核，内核可能未运行，请尝试启动服务");
+      }
+    } catch (err) {
+      setCoreApiFailure("未连接到内核，未知错误：" + (err instanceof Error ? err.message : String(err)));
     }
   }
 
@@ -106,9 +142,10 @@
   async function handleRefresh() {
     if (refreshing) return;
     refreshing = true;
-    addLog("Refreshing status...", "info");
+    addLog("[Core] Refreshing status...", "info");
     try {
       await fetchStatus();
+      addLog("[Core] Status refreshed", "success");
     } finally {
       setTimeout(() => {
         refreshing = false;
@@ -122,12 +159,12 @@
       return;
     }
 
-    addLog(`Switching TUN mode to ${enable}...`, "cmd");
+    addLog(`> Switching TUN mode to ${enable}...`, "cmd");
 
     try {
       await clashApi.setTun(enable as boolean);
       tunEnabled = enable as boolean;
-      addLog(`TUN mode switched to ${enable}`, "success");
+      addLog(`[Core] TUN mode switched to ${enable}`, "success");
       await fetchStatus();
     } catch (err: any) {
       addLog(err.message || String(err), "error");
@@ -135,12 +172,12 @@
   }
 
   async function switchProxyMode(newMode: string) {
-    addLog(`Switching proxy mode to ${newMode}...`, "cmd");
+    addLog(`> Switching proxy mode to ${newMode}...`, "cmd");
 
     try {
       await clashApi.setMode(newMode);
       proxyMode = newMode;
-      addLog(`Proxy mode switched to ${newMode}`, "success");
+      addLog(`[Core] Proxy mode switched to ${newMode}`, "success");
       await fetchStatus();
     } catch (err: any) {
       addLog(err.message || String(err), "error");
@@ -148,17 +185,17 @@
   }
 
   async function handleUpgradeCore() {
-    addLog("Upgrading core...", "cmd");
+    addLog("> Upgrading core...", "cmd");
 
     try {
       const result = await clashApi.upgradeCore();
 
       if (result && result.status === "ok") {
-        addLog("更新成功！ (Update OK)", "success");
+        addLog("[Core] Update OK", "success");
       } else if (result && result.message) {
-        addLog(`更新提示: ${result.message}`, "info");
+        addLog(`[Core] Result: ${result.message}`, "info");
       } else {
-        addLog("Core upgrade completed", "success");
+        addLog("[Core] Unknown result: " + JSON.stringify(result), "success");
       }
 
       setTimeout(fetchStatus, 2000);
@@ -175,15 +212,28 @@
     }
   }
 
+  async function handleStartFromNotice() {
+    if (startingFromNotice) return;
+    startingFromNotice = true;
+    try {
+      await runAction("start");
+      await handleRefresh();
+    } finally {
+      startingFromNotice = false;
+    }
+  }
+
   onMount(() => {
     (async () => {
       try {
+        addLog("[WebUI] Initializing WebUI...", "info");
+        const startTime = Date.now();
         homeLayout = loadHomeLayoutSettings();
         await loadPanelDefaultUrl();
 
-        addLog("Initializing WebUI...", "info");
-        await execute("status");
         await fetchStatus();
+        const elapsedMs = Date.now() - startTime;
+        addLog(`[WebUI] WebUI initialized with ${elapsedMs} ms`, "success");
       } catch (e) {
         console.error("Initialization error:", e);
       }
@@ -192,21 +242,27 @@
 </script>
 
 <main class="relative max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
+  {#if coreApiConnected === false}
+    <div in:fly={{ y: 20, duration: 320, delay: 220, easing: cubicOut }} out:fly={{ y: -10, duration: 220, easing: cubicOut }}>
+      <KernelAuthNotice message={coreApiError} onRetry={handleRefresh} retrying={refreshing} onStart={handleStartFromNotice} starting={startingFromNotice} />
+    </div>
+  {/if}
+
   {#each homeLayout.moduleOrder as moduleId, index (moduleId)}
-    {#if moduleId === "tun" && isModuleVisible("tun")}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+    {#if moduleId === "tun" && isModuleVisible("tun") && coreApiConnected !== false}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
         <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} onRefresh={handleRefresh} {refreshing} />
       </div>
     {/if}
 
-    {#if moduleId === "proxy" && isModuleVisible("proxy")}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+    {#if moduleId === "proxy" && isModuleVisible("proxy") && coreApiConnected !== false}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
         <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />
       </div>
     {/if}
 
-    {#if moduleId === "stats" && isModuleVisible("stats")}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+    {#if moduleId === "stats" && isModuleVisible("stats") && coreApiConnected !== false}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
         <SystemStats />
       </div>
     {/if}
@@ -219,13 +275,14 @@
 
     {#if moduleId === "panel" && isModuleVisible("panel")}
       <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
-        <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
-          <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950">
-            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">跳转内核面板</h2>
+        <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors {r ? 'rounded-xl' : ''}">
+          <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 {r ? 'rounded-t-xl' : ''}">
+            <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">面板快捷跳转</h2>
           </div>
           <div class="p-4">
             <button
-              class="w-full inline-flex items-center justify-center gap-2 border border-slate-300 dark:border-zinc-700 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 active:bg-slate-200 dark:active:bg-zinc-700 transition-colors outline-none"
+              class="w-full inline-flex items-center justify-center gap-2 border border-slate-300 dark:border-zinc-700 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 active:bg-slate-200 dark:active:bg-zinc-700 transition-colors outline-none
+              {r ? 'rounded-lg' : ''}"
               onclick={openPanel}
             >
               <ExternalLink size={16} />
@@ -237,9 +294,9 @@
       </div>
     {/if}
 
-    {#if moduleId === "core" && isModuleVisible("core") && coreConfig}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
-        <CoreInfo config={coreConfig} />
+    {#if moduleId === "core" && isModuleVisible("core") && coreApiConnected !== false}
+      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
+        <CoreInfo config={coreConfig} version={coreVersion} />
       </div>
     {/if}
 

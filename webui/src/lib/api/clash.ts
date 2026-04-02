@@ -25,6 +25,23 @@ export interface BoxConfigValues {
   toggleModeCycle: ("rule" | "global" | "direct")[];
 }
 
+export interface ClashVersionResponse {
+  meta?: boolean;
+  version?: string;
+}
+
+export type ClashVersionCheckResult =
+  | {
+      ok: true;
+      version: string;
+      meta: boolean;
+    }
+  | {
+      ok: false;
+      reason: "unauthorized" | "unreachable" | "invalid-response";
+      message: string;
+    };
+
 let cachedConfig: ClashConfig | null = null;
 
 function getErrorMessage(error: unknown): string {
@@ -178,6 +195,72 @@ async function clashRequest<T = any>(method: string, path: string, data?: any): 
   }
 
   return JSON.parse(text) as T;
+}
+
+function buildRequestHeaders(secret?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (secret && secret.trim().length > 0) {
+    headers.Authorization = `Bearer ${secret.trim()}`;
+  }
+
+  return headers;
+}
+
+export async function checkVersion(options?: { port?: number; secret?: string }): Promise<ClashVersionCheckResult> {
+  const config = await getClashConfig();
+  const port = options?.port ?? config.port;
+  const secret = options?.secret ?? config.secret;
+  const url = `http://127.0.0.1:${port}/version`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: buildRequestHeaders(secret),
+    });
+
+    const text = await response.text();
+    const maybeJson = text ? (JSON.parse(text) as ClashVersionResponse & { message?: string }) : null;
+
+    if (!response.ok) {
+      const message = maybeJson?.message || `HTTP ${response.status}`;
+      if (response.status === 401 || message.toLowerCase() === "unauthorized") {
+        return {
+          ok: false,
+          reason: "unauthorized",
+          message: "Clash API 认证失败，请检查 Secret",
+        };
+      }
+
+      return {
+        ok: false,
+        reason: "unreachable",
+        message: `无法连接 Clash API: ${message}`,
+      };
+    }
+
+    if (!maybeJson?.version) {
+      return {
+        ok: false,
+        reason: "invalid-response",
+        message: "Clash API 返回格式异常",
+      };
+    }
+
+    return {
+      ok: true,
+      version: maybeJson.version,
+      meta: Boolean(maybeJson.meta),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason: "unreachable",
+      message: `无法连接 Clash API: ${getErrorMessage(error)}`,
+    };
+  }
 }
 
 /**

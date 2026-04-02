@@ -29,7 +29,7 @@ Mono Box provides WEB UI management panel for convenient control. Key features i
   - Quick access to core panel
 - **Proxy Mode Selection**
   - Switch between RULE, GLOBAL, DIRECT modes
-- **System Resource Monitoring**
+- **Real-time Core Information**
   - Real-time memory usage, upload/download speed, total traffic
 - **Core Status & Ports**
   - View core ports and core version

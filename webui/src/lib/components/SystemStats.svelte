@@ -3,8 +3,10 @@
   import { onMount, onDestroy } from "svelte";
   import * as clashRealApi from "$lib/api/clash";
   import * as clashMockApi from "$lib/api/clash.mock";
+  import { roundedStore } from "$lib/settings";
 
   const clashApi = dev ? clashMockApi : clashRealApi;
+  const r = $derived($roundedStore);
 
   let memory = $state<number | null>(null);
   let uploadSpeed = $state<number | null>(null);
@@ -108,9 +110,9 @@
   });
 </script>
 
-<section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors">
-  <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950">
-    <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">系统资源监控</h2>
+<section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors {r ? 'rounded-xl' : ''}">
+  <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 {r ? 'rounded-t-xl' : ''}">
+    <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">实时内核信息</h2>
   </div>
   <div class="p-4 flex flex-col gap-4">
     <!-- 实时速度 -->

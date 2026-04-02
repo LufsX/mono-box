@@ -5,7 +5,7 @@
   import { dev } from "$app/environment";
   import TopNav from "$lib/components/TopNav.svelte";
   import BottomNav from "$lib/components/BottomNav.svelte";
-  import { loadHomeLayoutSettings } from "$lib/settings";
+  import { loadHomeLayoutSettings, initRoundedStore } from "$lib/settings";
   import * as actionRealApi from "$lib/api/action";
   import * as actionMockApi from "$lib/api/action.mock";
   import Home from "$lib/pages/Home.svelte";
@@ -18,6 +18,7 @@
   if (typeof window !== "undefined") {
     const settings = loadHomeLayoutSettings();
     actionApi.setEdgeToEdge(settings.edgeToEdge);
+    initRoundedStore();
   }
 
   let { children } = $props();

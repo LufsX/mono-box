@@ -1,3 +1,5 @@
+import { writable } from "svelte/store";
+
 export type HomeModuleId = "tun" | "proxy" | "stats" | "service" | "panel" | "core" | "log";
 
 export interface HomeLayoutSettings {
@@ -6,6 +8,7 @@ export interface HomeLayoutSettings {
   hiddenModules: HomeModuleId[];
   panelUrl: string;
   edgeToEdge: boolean;
+  rounded: boolean;
 }
 
 const STORAGE_KEY = "mono-box.home-layout";
@@ -18,6 +21,7 @@ const DEFAULT_SETTINGS: HomeLayoutSettings = {
   hiddenModules: [],
   panelUrl: "",
   edgeToEdge: true,
+  rounded: false,
 };
 
 export function getDefaultHomeLayoutSettings(): HomeLayoutSettings {
@@ -29,7 +33,7 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     return getDefaultHomeLayoutSettings();
   }
 
-  const raw = input as { version?: unknown; moduleOrder?: unknown; hiddenModules?: unknown; panelUrl?: unknown; edgeToEdge?: unknown };
+  const raw = input as { version?: unknown; moduleOrder?: unknown; hiddenModules?: unknown; panelUrl?: unknown; edgeToEdge?: unknown; rounded?: unknown };
   if (raw.version !== 1) {
     return getDefaultHomeLayoutSettings();
   }
@@ -76,6 +80,7 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     hiddenModules: [...hiddenSet],
     panelUrl: typeof raw.panelUrl === "string" ? raw.panelUrl.trim() : "",
     edgeToEdge: typeof raw.edgeToEdge === "boolean" ? raw.edgeToEdge : true,
+    rounded: typeof raw.rounded === "boolean" ? raw.rounded : false,
   };
 }
 
@@ -102,4 +107,11 @@ export function saveHomeLayoutSettings(settings: HomeLayoutSettings): void {
   }
 
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeHomeLayoutSettings(settings)));
+}
+
+export const roundedStore = writable(false);
+
+export function initRoundedStore(): void {
+  const settings = loadHomeLayoutSettings();
+  roundedStore.set(settings.rounded);
 }
