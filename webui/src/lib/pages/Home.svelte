@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import { cubicOut } from "svelte/easing";
+  import { flip } from "svelte/animate";
   import { fly } from "svelte/transition";
   import { dev } from "$app/environment";
   import * as actionRealApi from "$lib/api/action";
@@ -44,6 +45,15 @@
     });
     if (logs.length > 200) logs = logs.slice(logs.length - 200);
     logs = [...logs];
+  }
+
+  function moduleEnter(index: number) {
+    return {
+      y: 14,
+      duration: 300,
+      delay: Math.min(index * 22, 140),
+      easing: cubicOut,
+    };
   }
 
   function setCoreApiFailure(message: string) {
@@ -123,6 +133,17 @@
 
   function isModuleVisible(moduleId: HomeModuleId): boolean {
     return !homeLayout.hiddenModules.includes(moduleId);
+  }
+
+  function isModuleRenderable(moduleId: HomeModuleId): boolean {
+    if (!isModuleVisible(moduleId)) return false;
+
+    // modules that rely on core status
+    if (["tun", "proxy", "stats", "core"].includes(moduleId)) {
+      return coreApiConnected !== false;
+    }
+
+    return true;
   }
 
   function getPanelUrl(): string {
@@ -243,38 +264,22 @@
 
 <main class="relative max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
   {#if coreApiConnected === false}
-    <div in:fly={{ y: 20, duration: 320, delay: 220, easing: cubicOut }} out:fly={{ y: -10, duration: 220, easing: cubicOut }}>
+    <div in:fly={{ y: 16, duration: 260, easing: cubicOut }}>
       <KernelAuthNotice message={coreApiError} onRetry={handleRefresh} retrying={refreshing} onStart={handleStartFromNotice} starting={startingFromNotice} />
     </div>
   {/if}
 
-  {#each homeLayout.moduleOrder as moduleId, index (moduleId)}
-    {#if moduleId === "tun" && isModuleVisible("tun") && coreApiConnected !== false}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
+  {#each homeLayout.moduleOrder.filter(isModuleRenderable) as moduleId, index (moduleId)}
+    <div in:fly={moduleEnter(index)} animate:flip={{ duration: 180, easing: cubicOut }}>
+      {#if moduleId === "tun"}
         <TunControl bind:enabled={tunEnabled} onSwitch={handleTunSwitch} onRefresh={handleRefresh} {refreshing} />
-      </div>
-    {/if}
-
-    {#if moduleId === "proxy" && isModuleVisible("proxy") && coreApiConnected !== false}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
+      {:else if moduleId === "proxy"}
         <ProxyMode bind:mode={proxyMode} onSwitch={switchProxyMode} />
-      </div>
-    {/if}
-
-    {#if moduleId === "stats" && isModuleVisible("stats") && coreApiConnected !== false}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
+      {:else if moduleId === "stats"}
         <SystemStats />
-      </div>
-    {/if}
-
-    {#if moduleId === "service" && isModuleVisible("service")}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+      {:else if moduleId === "service"}
         <ServiceActions onAction={runAction} />
-      </div>
-    {/if}
-
-    {#if moduleId === "panel" && isModuleVisible("panel")}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+      {:else if moduleId === "panel"}
         <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors {r ? 'rounded-xl' : ''}">
           <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 {r ? 'rounded-t-xl' : ''}">
             <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">面板快捷跳转</h2>
@@ -291,19 +296,11 @@
             <div class="mt-2 text-xs text-slate-500 dark:text-slate-400 break-all">{getPanelUrl()}</div>
           </div>
         </section>
-      </div>
-    {/if}
-
-    {#if moduleId === "core" && isModuleVisible("core") && coreApiConnected !== false}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 240, easing: cubicOut }}>
+      {:else if moduleId === "core"}
         <CoreInfo config={coreConfig} version={coreVersion} />
-      </div>
-    {/if}
-
-    {#if moduleId === "log" && isModuleVisible("log")}
-      <div in:fly={{ y: 20, duration: 300, delay: index * 40, easing: cubicOut }} out:fly={{ y: -10, duration: 200, easing: cubicOut }}>
+      {:else if moduleId === "log"}
         <LogTerminal bind:logs />
-      </div>
-    {/if}
+      {/if}
+    </div>
   {/each}
 </main>

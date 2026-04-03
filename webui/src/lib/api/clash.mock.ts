@@ -234,6 +234,7 @@ export async function checkStatus(): Promise<boolean> {
 export async function checkVersion(options?: { port?: number; secret?: string }): Promise<ClashVersionCheckResult> {
   const parsed = parseBoxConfig(mockBoxConfig);
   const incomingSecret = (options?.secret ?? parsed.clashApiSecret).trim();
+  await new Promise((resolve) => setTimeout(resolve, 500));
 
   if (incomingSecret !== "") {
     return {

@@ -45,7 +45,7 @@
     <TopNav />
   </div>
   {#key currentHash}
-    <div class="app-page-wrapper" in:fly={{ y: 12, duration: 260, delay: 160, easing: cubicOut }} out:fade={{ duration: 160 }}>
+    <div class="app-page-wrapper" in:fly={{ y: 12, duration: 300, easing: cubicOut }} out:fade={{ duration: 180 }}>
       <div class="app-scroll">
         {#if currentHash === "#/settings"}
           <Settings />

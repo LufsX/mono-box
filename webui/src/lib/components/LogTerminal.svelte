@@ -7,12 +7,21 @@
 
   let { logs = $bindable() }: { logs: LogEntry[] } = $props();
   let logsContainer: HTMLElement;
+  let stickToBottom = true;
 
   const r = $derived($roundedStore);
 
-  // 自动滚动到底部
+  function updateStickToBottom() {
+    if (!logsContainer) return;
+    const distanceFromBottom = logsContainer.scrollHeight - (logsContainer.scrollTop + logsContainer.clientHeight);
+    stickToBottom = distanceFromBottom < 24;
+  }
+
+  // 自动滚动到底部：仅在用户选择“粘底”时才跟随
   $effect(() => {
     if (logs.length > 0 && logsContainer) {
+      if (!stickToBottom) return;
+
       tick().then(() => {
         logsContainer.scrollTop = logsContainer.scrollHeight;
       });
@@ -34,7 +43,7 @@
       CLEAR
     </button>
   </div>
-  <div class="p-4 flex-1 overflow-y-auto font-mono text-xs leading-relaxed custom-scrollbar bg-black" bind:this={logsContainer}>
+  <div class="p-4 flex-1 overflow-y-auto font-mono text-xs leading-relaxed custom-scrollbar bg-black" bind:this={logsContainer} onscroll={updateStickToBottom}>
     {#if logs.length === 0}
       <div class="text-zinc-700 text-base text-center mt-10">Waiting for output...</div>
     {:else}
