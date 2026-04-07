@@ -38,13 +38,13 @@
       </div>
       <div class="flex font-bold text-sm">
         <button
-          class="px-4 py-1.5 transition-[transform,colors] duration-200 outline-none border -ml-px first:ml-0 active:translate-y-px active:scale-[0.99] {r ? 'rounded-l-lg' : ''} {enabled
+          class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 {r ? 'rounded-l-lg' : ''} {enabled
             ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
             : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
           onclick={() => onSwitch(true)}>ON</button
         >
         <button
-          class="px-4 py-1.5 transition-[transform,colors] duration-200 outline-none border -ml-px active:translate-y-px active:scale-[0.99] {r ? 'rounded-r-lg' : ''} {!enabled
+          class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px {r ? 'rounded-r-lg' : ''} {!enabled
             ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
             : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
           onclick={() => onSwitch(false)}>OFF</button
