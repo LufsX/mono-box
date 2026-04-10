@@ -3,7 +3,6 @@
   import { cubicOut } from "svelte/easing";
   import { flip } from "svelte/animate";
   import { fly } from "svelte/transition";
-  import { dev } from "$app/environment";
   import * as actionRealApi from "$lib/api/action";
   import * as actionMockApi from "$lib/api/action.mock";
   import * as clashRealApi from "$lib/api/clash";
@@ -18,9 +17,10 @@
   import { ExternalLink } from "@lucide/svelte";
   import { loadHomeLayoutSettings, roundedStore, type HomeModuleId } from "$lib/settings";
 
-  const clashApi = dev ? clashMockApi : clashRealApi;
+  const isProd = import.meta.env.MODE !== "production";
+  const clashApi = isProd ? clashMockApi : clashRealApi;
   const r = $derived($roundedStore);
-  const actionApi = dev ? actionMockApi : actionRealApi;
+  const actionApi = isProd ? actionMockApi : actionRealApi;
 
   let proxyMode = $state("rule");
   let tunEnabled = $state(false);

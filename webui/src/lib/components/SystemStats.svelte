@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { dev } from "$app/environment";
   import { onMount, onDestroy } from "svelte";
   import * as clashRealApi from "$lib/api/clash";
   import * as clashMockApi from "$lib/api/clash.mock";
   import { roundedStore } from "$lib/settings";
 
-  const clashApi = dev ? clashMockApi : clashRealApi;
+  const isProd = import.meta.env.MODE !== "production";
+  const clashApi = isProd ? clashMockApi : clashRealApi;
   const r = $derived($roundedStore);
 
   let memory = $state<number | null>(null);

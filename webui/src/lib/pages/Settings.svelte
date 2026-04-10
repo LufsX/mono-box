@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { dev } from "$app/environment";
   import { flip } from "svelte/animate";
   import { onDestroy, onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
@@ -15,9 +14,9 @@
 
   type ProxyMode = "rule" | "global" | "direct";
 
-  const clashApi = dev ? clashMockApi : clashRealApi;
-  const actionApi = dev ? actionMockApi : actionRealApi;
-  const ALL_PROXY_MODES: ProxyMode[] = ["rule", "global", "direct"];
+  const isProd = import.meta.env.MODE !== "production";
+  const clashApi = isProd ? clashMockApi : clashRealApi;
+  const actionApi = isProd ? actionMockApi : actionRealApi;
 
   // box.config 配置
   let boxConfigPort = $state(9090);

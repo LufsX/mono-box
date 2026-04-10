@@ -2,7 +2,6 @@
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
-  import { dev } from "$app/environment";
   import TopNav from "$lib/components/TopNav.svelte";
   import BottomNav from "$lib/components/BottomNav.svelte";
   import { loadHomeLayoutSettings, initRoundedStore } from "$lib/settings";
@@ -12,7 +11,8 @@
   import Settings from "$lib/pages/Settings.svelte";
   import "./layout.css";
 
-  const actionApi = dev ? actionMockApi : actionRealApi;
+  const isProd = import.meta.env.MODE !== "production";
+  const actionApi = isProd ? actionMockApi : actionRealApi;
 
   // Execute immediately with highest priority
   if (typeof window !== "undefined") {
