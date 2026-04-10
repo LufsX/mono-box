@@ -15,6 +15,38 @@ export interface TrafficData {
   downTotal: number;
 }
 
+export interface ClashProxyHistory {
+  time: string;
+  delay: number;
+}
+
+export interface ClashProxy {
+  name: string;
+  type: string;
+  now?: string;
+  all?: string[];
+  history?: ClashProxyHistory[];
+  udp?: boolean;
+}
+
+export type ClashProxyMap = Record<string, ClashProxy>;
+
+export interface ClashProxyProvider {
+  name: string;
+  type: string;
+  vehicleType: string;
+  updatedAt: string;
+  proxies: { name: string; type: string }[];
+  subscriptionInfo?: {
+    Download: number;
+    Upload: number;
+    Total: number;
+    Expire: number;
+  };
+}
+
+export type ClashProxyProviderMap = Record<string, ClashProxyProvider>;
+
 export interface BoxConfigValues {
   clashApiPort: number;
   clashApiSecret: string;
@@ -41,6 +73,64 @@ let mockBoxConfig = 'clash_api_port=9090\nclash_api_secret=\ntoggle_action="serv
 
 let mockUploadTotal = 128 * 1024 * 1024;
 let mockDownloadTotal = 512 * 1024 * 1024;
+
+const mockNodeNames = ["HK-A", "JP-A", "US-A", "SG-A", "DIRECT", "REJECT"];
+
+let mockProxies: ClashProxyMap = {
+  GLOBAL: {
+    name: "GLOBAL",
+    type: "Selector",
+    now: "Proxy",
+    all: ["Proxy", "DIRECT"],
+    udp: true,
+  },
+  Proxy: {
+    name: "Proxy",
+    type: "Selector",
+    now: "HK-A",
+    all: ["HK-A", "JP-A", "US-A", "SG-A", "DIRECT", "REJECT"],
+    udp: true,
+  },
+  Auto: {
+    name: "Auto",
+    type: "URLTest",
+    now: "JP-A",
+    all: ["HK-A", "JP-A", "US-A", "SG-A"],
+    udp: true,
+  },
+};
+
+let mockProviders: ClashProxyProviderMap = {
+  "Provider-A": {
+    name: "Provider-A",
+    type: "Proxy",
+    vehicleType: "HTTP",
+    updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    proxies: [
+      { name: "HK-A", type: "Shadowsocks" },
+      { name: "JP-A", type: "Shadowsocks" },
+      { name: "US-A", type: "Shadowsocks" },
+      { name: "SG-A", type: "Shadowsocks" },
+    ],
+    subscriptionInfo: {
+      Download: 32 * 1024 * 1024 * 1024,
+      Upload: 12 * 1024 * 1024 * 1024,
+      Total: 200 * 1024 * 1024 * 1024,
+      Expire: Math.floor((Date.now() + 15 * 24 * 60 * 60 * 1000) / 1000),
+    },
+  },
+};
+
+for (const node of mockNodeNames) {
+  if (!mockProxies[node]) {
+    mockProxies[node] = {
+      name: node,
+      type: node === "DIRECT" || node === "REJECT" ? "Direct" : "Shadowsocks",
+      udp: true,
+      history: [],
+    };
+  }
+}
 
 function randomInRange(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -150,6 +240,7 @@ export async function getConfigs(): Promise<any> {
   return {
     mode: mockMode,
     tun: { enable: mockTunEnabled },
+    url: "https://cp.cloudflare.com/generate_204",
     port: 7890,
     "socks-port": 7891,
     "mixed-port": parsed.clashApiPort,
@@ -215,7 +306,87 @@ export async function createTrafficWebSocket(onMessage: (data: TrafficData) => v
 }
 
 export async function setOutbound(_selector: string, _outbound: string): Promise<void> {
-  return;
+  const selector = _selector.trim();
+  if (!selector || !mockProxies[selector]) {
+    throw new Error(`Selector not found: ${selector}`);
+  }
+
+  if (!mockProxies[selector].all?.includes(_outbound)) {
+    throw new Error(`Outbound not found in group: ${_outbound}`);
+  }
+
+  mockProxies = {
+    ...mockProxies,
+    [selector]: {
+      ...mockProxies[selector],
+      now: _outbound,
+    },
+  };
+}
+
+export async function getProxies(): Promise<ClashProxyMap> {
+  return mockProxies;
+}
+
+export async function testProxyDelay(name: string): Promise<number> {
+  if (!mockProxies[name]) {
+    return 0;
+  }
+
+  const delay = randomInRange(32, 880);
+  const history = mockProxies[name].history ? [...(mockProxies[name].history as ClashProxyHistory[])] : [];
+  history.push({ time: new Date().toISOString(), delay });
+
+  if (history.length > 12) {
+    history.splice(0, history.length - 12);
+  }
+
+  mockProxies = {
+    ...mockProxies,
+    [name]: {
+      ...mockProxies[name],
+      history,
+    },
+  };
+
+  return delay;
+}
+
+export async function getProxyProviders(): Promise<ClashProxyProviderMap> {
+  return mockProviders;
+}
+
+export async function updateProxyProvider(name: string): Promise<void> {
+  if (!mockProviders[name]) {
+    throw new Error(`Provider not found: ${name}`);
+  }
+
+  mockProviders = {
+    ...mockProviders,
+    [name]: {
+      ...mockProviders[name],
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
+export async function healthCheckProxyProvider(name: string): Promise<void> {
+  const provider = mockProviders[name];
+  if (!provider) {
+    throw new Error(`Provider not found: ${name}`);
+  }
+
+  for (const node of provider.proxies || []) {
+    await testProxyDelay(node.name);
+  }
+
+  mockProviders = {
+    ...mockProviders,
+    [name]: {
+      ...provider,
+      updatedAt: new Date().toISOString(),
+    },
+  };
 }
 
 export async function getProxy(name: string): Promise<any> {

@@ -7,6 +7,7 @@ export interface HomeLayoutSettings {
   moduleOrder: HomeModuleId[];
   hiddenModules: HomeModuleId[];
   panelUrl: string;
+  proxyTestUrl: string;
   edgeToEdge: boolean;
   rounded: boolean;
 }
@@ -20,6 +21,7 @@ const DEFAULT_SETTINGS: HomeLayoutSettings = {
   moduleOrder: ["tun", "proxy", "stats", "core", "panel", "service", "log"],
   hiddenModules: [],
   panelUrl: "",
+  proxyTestUrl: "http://cp.cloudflare.com/generate_204",
   edgeToEdge: true,
   rounded: false,
 };
@@ -33,7 +35,15 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     return getDefaultHomeLayoutSettings();
   }
 
-  const raw = input as { version?: unknown; moduleOrder?: unknown; hiddenModules?: unknown; panelUrl?: unknown; edgeToEdge?: unknown; rounded?: unknown };
+  const raw = input as {
+    version?: unknown;
+    moduleOrder?: unknown;
+    hiddenModules?: unknown;
+    panelUrl?: unknown;
+    proxyTestUrl?: unknown;
+    edgeToEdge?: unknown;
+    rounded?: unknown;
+  };
   if (raw.version !== 1) {
     return getDefaultHomeLayoutSettings();
   }
@@ -79,6 +89,7 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     moduleOrder,
     hiddenModules: [...hiddenSet],
     panelUrl: typeof raw.panelUrl === "string" ? raw.panelUrl.trim() : "",
+    proxyTestUrl: typeof raw.proxyTestUrl === "string" ? raw.proxyTestUrl.trim() : "http://cp.cloudflare.com/generate_204",
     edgeToEdge: typeof raw.edgeToEdge === "boolean" ? raw.edgeToEdge : true,
     rounded: typeof raw.rounded === "boolean" ? raw.rounded : false,
   };

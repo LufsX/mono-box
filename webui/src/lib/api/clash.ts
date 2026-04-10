@@ -17,6 +17,38 @@ export interface TrafficData {
   downTotal: number;
 }
 
+export interface ClashProxyHistory {
+  time: string;
+  delay: number;
+}
+
+export interface ClashProxy {
+  name: string;
+  type: string;
+  now?: string;
+  all?: string[];
+  history?: ClashProxyHistory[];
+  udp?: boolean;
+}
+
+export type ClashProxyMap = Record<string, ClashProxy>;
+
+export interface ClashProxyProvider {
+  name: string;
+  type: string;
+  vehicleType: string;
+  updatedAt: string;
+  proxies: { name: string; type: string }[];
+  subscriptionInfo?: {
+    Download: number;
+    Upload: number;
+    Total: number;
+    Expire: number;
+  };
+}
+
+export type ClashProxyProviderMap = Record<string, ClashProxyProvider>;
+
 export interface BoxConfigValues {
   clashApiPort: number;
   clashApiSecret: string;
@@ -350,6 +382,46 @@ export async function createTrafficWebSocket(onMessage: (data: TrafficData) => v
  */
 export async function setOutbound(selector: string, outbound: string): Promise<void> {
   await clashRequest("PUT", `/proxies/${selector}`, { name: outbound });
+}
+
+/**
+ * 获取所有代理与策略组信息
+ */
+export async function getProxies(): Promise<ClashProxyMap> {
+  const result = await clashRequest<{ proxies: ClashProxyMap }>("GET", "/proxies");
+  return result?.proxies || {};
+}
+
+/**
+ * 测试指定节点延迟
+ */
+export async function testProxyDelay(name: string, options?: { url?: string; timeout?: number }): Promise<number> {
+  const url = options?.url || "http://cp.cloudflare.com/generate_204";
+  const timeout = options?.timeout ?? 5000;
+  const result = await clashRequest<{ delay?: number }>("GET", `/proxies/${encodeURIComponent(name)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`);
+  return typeof result?.delay === "number" ? result.delay : 0;
+}
+
+/**
+ * 获取代理 Provider 列表
+ */
+export async function getProxyProviders(): Promise<ClashProxyProviderMap> {
+  const result = await clashRequest<{ providers: ClashProxyProviderMap }>("GET", "/providers/proxies");
+  return result?.providers || {};
+}
+
+/**
+ * 更新指定 Provider
+ */
+export async function updateProxyProvider(name: string): Promise<void> {
+  await clashRequest("PUT", `/providers/proxies/${encodeURIComponent(name)}`);
+}
+
+/**
+ * 对 Provider 执行健康检查
+ */
+export async function healthCheckProxyProvider(name: string): Promise<void> {
+  await clashRequest("GET", `/providers/proxies/${encodeURIComponent(name)}/healthcheck`);
 }
 
 /**

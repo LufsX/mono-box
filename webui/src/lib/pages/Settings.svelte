@@ -17,6 +17,7 @@
   const isProd = import.meta.env.MODE !== "production";
   const clashApi = isProd ? clashMockApi : clashRealApi;
   const actionApi = isProd ? actionMockApi : actionRealApi;
+  const ALL_PROXY_MODES: ProxyMode[] = ["rule", "global", "direct"];
 
   // box.config 配置
   let boxConfigPort = $state(9090);
@@ -565,6 +566,19 @@
           placeholder={getDefaultPanelUrl()}
         />
         <span class="text-xs text-slate-500 dark:text-slate-400">留空使用默认：{getDefaultPanelUrl()}</span>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <label for="proxy-test-url" class="text-sm font-bold text-slate-900 dark:text-slate-200">代理测速 URL</label>
+        <input
+          id="proxy-test-url"
+          type="text"
+          bind:value={homeLayout.proxyTestUrl}
+          class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors
+          {r ? 'rounded-lg' : ''}"
+          placeholder="http://cp.cloudflare.com/generate_204"
+        />
+        <span class="text-xs text-slate-500 dark:text-slate-400">代理页面测速默认使用该 URL，可按网络环境自行调整</span>
       </div>
 
       <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>

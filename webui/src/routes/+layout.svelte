@@ -8,6 +8,7 @@
   import * as actionRealApi from "$lib/api/action";
   import * as actionMockApi from "$lib/api/action.mock";
   import Home from "$lib/pages/Home.svelte";
+  import Proxies from "$lib/pages/Proxies.svelte";
   import Settings from "$lib/pages/Settings.svelte";
   import "./layout.css";
 
@@ -49,6 +50,8 @@
       <div class="app-scroll">
         {#if currentHash === "#/settings"}
           <Settings />
+        {:else if currentHash === "#/proxies"}
+          <Proxies />
         {:else}
           <Home />
         {/if}
