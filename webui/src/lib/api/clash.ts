@@ -508,3 +508,43 @@ export async function updateBoxConfigValues(updates: Record<string, string>): Pr
     throw new Error(getErrorMessage(e));
   }
 }
+
+export interface ClashConnectionMetadata {
+  network: string;
+  type: string;
+  sourceIP: string;
+  destinationIP: string;
+  sourcePort: string;
+  destinationPort: string;
+  host: string;
+  dnsMode: string;
+}
+
+export interface ClashConnection {
+  id: string;
+  metadata: ClashConnectionMetadata;
+  upload: number;
+  download: number;
+  start: string;
+  chains: string[];
+  rule: string;
+  rulePayload: string;
+}
+
+export interface ClashConnectionsResponse {
+  downloadTotal: number;
+  uploadTotal: number;
+  connections: ClashConnection[];
+}
+
+export async function getConnections(): Promise<ClashConnectionsResponse> {
+  return await clashRequest("GET", "/connections");
+}
+
+export async function deleteConnection(id: string): Promise<void> {
+  await clashRequest("DELETE", `/connections/${id}`);
+}
+
+export async function closeAllConnections(): Promise<void> {
+  await clashRequest("DELETE", "/connections");
+}

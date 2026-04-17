@@ -10,6 +10,7 @@
   import Home from "$lib/pages/Home.svelte";
   import Proxies from "$lib/pages/Proxies.svelte";
   import Settings from "$lib/pages/Settings.svelte";
+  import Connections from "$lib/pages/Connections.svelte";
   import "./layout.css";
 
   const isProd = import.meta.env.MODE !== "production";
@@ -52,6 +53,8 @@
           <Settings />
         {:else if currentHash === "#/proxies"}
           <Proxies />
+        {:else if currentHash === "#/connections"}
+          <Connections />
         {:else}
           <Home />
         {/if}

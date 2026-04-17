@@ -257,22 +257,21 @@
 
   function toggleModuleVisible(moduleId: HomeModuleId) {
     if (isModuleVisible(moduleId)) {
-      homeLayout.hiddenModules = [...homeLayout.hiddenModules, moduleId];
-    } else {
-      homeLayout.hiddenModules = homeLayout.hiddenModules.filter((id) => id !== moduleId);
+      homeLayout.hiddenModules.push(moduleId);
+      return;
     }
-    homeLayout = { ...homeLayout };
+
+    const idx = homeLayout.hiddenModules.indexOf(moduleId);
+    if (idx !== -1) homeLayout.hiddenModules.splice(idx, 1);
   }
 
   function moveModule(index: number, direction: -1 | 1) {
     const target = index + direction;
     if (target < 0 || target >= homeLayout.moduleOrder.length) return;
 
-    const next = [...homeLayout.moduleOrder];
-    const [item] = next.splice(index, 1);
-    next.splice(target, 0, item);
-    homeLayout.moduleOrder = next;
-    homeLayout = { ...homeLayout };
+    const order = homeLayout.moduleOrder;
+    const [item] = order.splice(index, 1);
+    order.splice(target, 0, item);
   }
 
   function getDefaultPanelUrl(): string {

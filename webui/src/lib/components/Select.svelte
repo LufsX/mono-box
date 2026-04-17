@@ -52,7 +52,7 @@
     type="button"
     {disabled}
     onclick={() => (open = !open)}
-    class="w-full flex items-center justify-between px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
+    class="w-full flex items-center justify-between px-3 py-1.5 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
     {r ? 'rounded-lg' : ''}"
   >
     <span class="truncate text-sm">{selectedLabel}</span>

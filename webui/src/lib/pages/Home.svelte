@@ -43,8 +43,10 @@
     lines.forEach((line) => {
       logs.push({ time, msg: line, type });
     });
-    if (logs.length > 200) logs = logs.slice(logs.length - 200);
-    logs = [...logs];
+    if (logs.length > 200) {
+      logs.splice(0, logs.length - 200);
+    }
+    logs = logs;
   }
 
   function moduleEnter(index: number) {

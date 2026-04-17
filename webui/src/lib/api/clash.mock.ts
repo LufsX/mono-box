@@ -443,3 +443,88 @@ export async function updateBoxConfigValues(updates: Record<string, string>): Pr
 
   mockBoxConfig = content;
 }
+
+export interface ClashConnectionMetadata {
+  network: string;
+  type: string;
+  sourceIP: string;
+  destinationIP: string;
+  sourcePort: string;
+  destinationPort: string;
+  host: string;
+  dnsMode: string;
+}
+
+export interface ClashConnection {
+  id: string;
+  metadata: ClashConnectionMetadata;
+  upload: number;
+  download: number;
+  start: string;
+  chains: string[];
+  rule: string;
+  rulePayload: string;
+}
+
+export interface ClashConnectionsResponse {
+  downloadTotal: number;
+  uploadTotal: number;
+  connections: ClashConnection[];
+}
+
+let mockConnections: ClashConnection[] = [
+  {
+    id: "1",
+    metadata: {
+      network: "tcp",
+      type: "HTTP",
+      sourceIP: "192.168.1.100",
+      destinationIP: "1.1.1.1",
+      sourcePort: "51234",
+      destinationPort: "443",
+      host: "example.com",
+      dnsMode: "normal",
+    },
+    upload: 1024,
+    download: 2048,
+    start: new Date(Date.now() - 10000).toISOString(),
+    chains: ["Proxy", "HK-A"],
+    rule: "Match",
+    rulePayload: "",
+  },
+  {
+    id: "2",
+    metadata: {
+      network: "udp",
+      type: "DNS",
+      sourceIP: "192.168.1.100",
+      destinationIP: "8.8.8.8",
+      sourcePort: "51235",
+      destinationPort: "53",
+      host: "",
+      dnsMode: "normal",
+    },
+    upload: 512,
+    download: 512,
+    start: new Date(Date.now() - 5000).toISOString(),
+    chains: ["GLOBAL", "DIRECT"],
+    rule: "Match",
+    rulePayload: "",
+  },
+];
+
+export async function getConnections(): Promise<ClashConnectionsResponse> {
+  return {
+    downloadTotal: 2560,
+    uploadTotal: 1536,
+    connections: [...mockConnections],
+  };
+}
+
+export async function deleteConnection(id: string): Promise<void> {
+  mockConnections = mockConnections.filter((c) => c.id !== id);
+}
+
+export async function closeAllConnections(): Promise<void> {
+  mockConnections = [];
+}

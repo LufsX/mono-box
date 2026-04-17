@@ -3,6 +3,7 @@
   import * as clashRealApi from "$lib/api/clash";
   import * as clashMockApi from "$lib/api/clash.mock";
   import { roundedStore } from "$lib/settings";
+  import { formatBytes } from "$lib/utils";
 
   const isProd = import.meta.env.MODE !== "production";
   const clashApi = isProd ? clashMockApi : clashRealApi;
@@ -17,15 +18,6 @@
   let memoryWs: WebSocket | null = null;
   let trafficWs: WebSocket | null = null;
   let reconnectTimeout: number | null = null;
-
-  function formatBytes(bytes: number): string {
-    const kb = bytes / 1024;
-    if (kb < 1024) return `${kb.toFixed(1)} KiB`;
-    const mb = kb / 1024;
-    if (mb < 1024) return `${mb.toFixed(1)} MiB`;
-    const gb = mb / 1024;
-    return `${gb.toFixed(2)} GiB`;
-  }
 
   function formatSpeed(bps: number): string {
     const kbps = bps / 1024;

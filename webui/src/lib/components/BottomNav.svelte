@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { House, Settings, Waypoints } from "@lucide/svelte";
+  import { House, Settings, Waypoints, Activity } from "@lucide/svelte";
   import { roundedStore } from "$lib/settings";
 
   let { currentPath = $bindable() }: { currentPath: string } = $props();
@@ -9,6 +9,7 @@
   const navItems = [
     { href: "#/", label: "首页", icon: House },
     { href: "#/proxies", label: "代理", icon: Waypoints },
+    { href: "#/connections", label: "连接", icon: Activity },
     { href: "#/settings", label: "设置", icon: Settings },
   ] as const;
 

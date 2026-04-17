@@ -8,6 +8,7 @@
   import * as clashRealApi from "$lib/api/clash";
   import * as clashMockApi from "$lib/api/clash.mock";
   import { loadHomeLayoutSettings, roundedStore } from "$lib/settings";
+  import { formatBytes } from "$lib/utils";
 
   type NodeSortType = "default" | "latency" | "name";
   type GroupType = "Selector" | "URLTest" | "Fallback" | "LoadBalance";
@@ -68,18 +69,6 @@
     { value: "global", label: "全局" },
     { value: "direct", label: "直连" },
   ];
-
-  function formatBytes(value: number): string {
-    if (!value || value <= 0) return "0 B";
-    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
-    let size = value;
-    let idx = 0;
-    while (size >= 1024 && idx < units.length - 1) {
-      size /= 1024;
-      idx += 1;
-    }
-    return `${size.toFixed(idx <= 1 ? 0 : 1)} ${units[idx]}`;
-  }
 
   function formatDate(timestamp: number): string {
     if (!timestamp) return "长期有效";
@@ -203,48 +192,42 @@
   function cycleGroupSort(groupName: string) {
     const orders: NodeSortType[] = ["default", "latency", "name"];
     const current = groupSorts[groupName] || "default";
-    groupSorts = { ...groupSorts, [groupName]: orders[(orders.indexOf(current) + 1) % orders.length] };
+    groupSorts[groupName] = orders[(orders.indexOf(current) + 1) % orders.length];
   }
 
   function testStart(owner: string, nodes: string[]) {
-    testingOwners = { ...testingOwners, [owner]: (testingOwners[owner] || 0) + 1 };
-    testingProgress = { ...testingProgress, [owner]: { done: 0, total: Math.max(1, nodes.length) } };
+    testingOwners[owner] = (testingOwners[owner] || 0) + 1;
+    testingProgress[owner] = { done: 0, total: Math.max(1, nodes.length) };
     if (!nodes.length) return;
-    const next = { ...testingNodes };
     for (const node of nodes) {
       if (!node) continue;
-      next[node] = (next[node] || 0) + 1;
+      testingNodes[node] = (testingNodes[node] || 0) + 1;
     }
-    testingNodes = next;
   }
 
   function testEnd(owner: string, nodes: string[]) {
     const ownerCount = testingOwners[owner] || 0;
     if (ownerCount <= 1) {
-      const { [owner]: _, ...rest } = testingOwners;
-      testingOwners = rest;
+      delete testingOwners[owner];
     } else {
-      testingOwners = { ...testingOwners, [owner]: ownerCount - 1 };
+      testingOwners[owner] = ownerCount - 1;
     }
     if (!nodes.length) return;
 
-    const { [owner]: __, ...progressRest } = testingProgress;
-    testingProgress = progressRest;
+    delete testingProgress[owner];
 
-    const next = { ...testingNodes };
     for (const node of nodes) {
-      const count = next[node] || 0;
-      if (count <= 1) delete next[node];
-      else next[node] = count - 1;
+      const count = testingNodes[node] || 0;
+      if (count <= 1) delete testingNodes[node];
+      else testingNodes[node] = count - 1;
     }
-    testingNodes = next;
   }
 
   function stepProgress(owner: string) {
     const current = testingProgress[owner];
     if (!current) return;
     const done = Math.min(current.total, current.done + 1);
-    testingProgress = { ...testingProgress, [owner]: { ...current, done } };
+    current.done = done;
   }
 
   async function loadData() {
@@ -252,8 +235,27 @@
       error = "";
       const [proxyData, providerData, configData] = await Promise.all([clashApi.getProxies(), clashApi.getProxyProviders(), clashApi.getConfigs()]);
 
-      proxies = proxyData;
-      providers = providerData;
+      if (!proxies) {
+        proxies = proxyData;
+      } else {
+        for (const key of Object.keys(proxies)) {
+          if (!(key in proxyData)) delete proxies[key];
+        }
+        for (const [key, value] of Object.entries(proxyData)) {
+          proxies[key] = value;
+        }
+      }
+
+      if (!providers) {
+        providers = providerData;
+      } else {
+        for (const key of Object.keys(providers)) {
+          if (!(key in providerData)) delete providers[key];
+        }
+        for (const [key, value] of Object.entries(providerData)) {
+          providers[key] = value;
+        }
+      }
       if (configData?.mode) {
         currentMode = configData.mode as ClashMode;
         modeSelectValue = currentMode;
@@ -266,7 +268,12 @@
         const last = history[history.length - 1];
         if (typeof last?.delay === "number") nextLatency[name] = last.delay;
       }
-      latencies = nextLatency;
+      for (const key of Object.keys(latencies)) {
+        delete latencies[key];
+      }
+      for (const [name, delay] of Object.entries(nextLatency)) {
+        latencies[name] = delay;
+      }
       const savedTestUrl = loadHomeLayoutSettings().proxyTestUrl.trim();
       const configTestUrl = typeof configData?.url === "string" ? configData.url.trim() : "";
       proxyTestUrl = savedTestUrl || configTestUrl || DEFAULT_TEST_URL;
@@ -296,7 +303,9 @@
     if (!group || group.type !== "Selector" || group.now === nodeName) return;
     try {
       await clashApi.setOutbound(groupName, nodeName);
-      proxies = { ...(proxies || {}), [groupName]: { ...group, now: nodeName } };
+      if (proxies?.[groupName]) {
+        proxies[groupName].now = nodeName;
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       error = `切换策略失败: ${message}`;
@@ -309,9 +318,9 @@
     testStart(ownerKey, [nodeName]);
     try {
       const delay = await clashApi.testProxyDelay(nodeName, { url: getTestUrl(groupName) });
-      latencies = { ...latencies, [nodeName]: delay };
+      latencies[nodeName] = delay;
     } catch {
-      latencies = { ...latencies, [nodeName]: 0 };
+      latencies[nodeName] = 0;
     } finally {
       stepProgress(ownerKey);
       testEnd(ownerKey, [nodeName]);
@@ -339,9 +348,7 @@
           }
         }),
       );
-      const next = { ...latencies };
-      for (const [name, delay] of entries) next[name] = delay;
-      latencies = next;
+      for (const [name, delay] of entries) latencies[name] = delay;
     } finally {
       testEnd(owner, nodes);
     }
@@ -386,10 +393,7 @@
       clearInterval(progressTimer);
       const current = testingProgress[owner];
       if (current) {
-        testingProgress = {
-          ...testingProgress,
-          [owner]: { ...current, done: current.total },
-        };
+        current.done = current.total;
       }
       testEnd(owner, nodes);
     }
@@ -403,9 +407,9 @@
     testStart(owner, [nodeName]);
     try {
       const delay = await clashApi.testProxyDelay(nodeName, { url: getTestUrl(providerName) });
-      latencies = { ...latencies, [nodeName]: delay };
+      latencies[nodeName] = delay;
     } catch {
-      latencies = { ...latencies, [nodeName]: 0 };
+      latencies[nodeName] = 0;
     } finally {
       stepProgress(owner);
       testEnd(owner, [nodeName]);
@@ -668,18 +672,19 @@
             >
               {#if (groupSorts[openedGroup] || "default") === "name"}
                 <ArrowUpNarrowWide size={14} />
-                <span>名称排序</span>
+                <span>名称</span>
               {:else if (groupSorts[openedGroup] || "default") === "latency"}
                 <Clock3 size={14} />
-                <span>延迟排序</span>
+                <span>延迟</span>
               {:else}
                 <ArrowUpDown size={14} />
-                <span>默认排序</span>
+                <span>默认</span>
               {/if}
             </button>
 
             <button
-              class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 {r ? 'rounded-lg' : ''}"
+              class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
+              {r ? 'rounded-lg' : ''}"
               onclick={(event) => testGroup(event, openedGroup)}
               disabled={isTestingGroup}
               title="测速当前策略组"
@@ -688,7 +693,8 @@
             </button>
 
             <button
-              class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r ? 'rounded-lg' : ''}"
+              class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors
+              {r ? 'rounded-lg' : ''}"
               onclick={closeDetail}
               title="关闭"
             >
