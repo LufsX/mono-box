@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { fade, fly, scale } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { Activity, ArrowUpDown, ChevronRight, Clock3, RefreshCw, ArrowUpNarrowWide, Timer, X } from "@lucide/svelte";
@@ -47,6 +47,21 @@
 
   let activeGroup = $state<string | null>(null);
   let activeProvider = $state<string | null>(null);
+  let modalHistoryPushed = false;
+
+  function pushModalHistory() {
+    if (modalHistoryPushed) return;
+    if (typeof history === "undefined") return;
+    history.pushState({ ...(history.state || {}), __modal: "proxies" }, "");
+    modalHistoryPushed = true;
+  }
+
+  function handlePopState() {
+    if (!activeGroup && !activeProvider) return;
+    activeGroup = null;
+    activeProvider = null;
+    modalHistoryPushed = false;
+  }
 
   const modeOptions: { value: ClashMode; label: string }[] = [
     { value: "rule", label: "规则" },
@@ -164,18 +179,25 @@
   }
 
   function openGroup(groupName: string) {
+    if (!activeGroup && !activeProvider) pushModalHistory();
     activeProvider = null;
     activeGroup = groupName;
   }
 
   function openProvider(name: string) {
+    if (!activeGroup && !activeProvider) pushModalHistory();
     activeGroup = null;
     activeProvider = name;
   }
 
   function closeDetail() {
+    if (modalHistoryPushed && typeof history !== "undefined") {
+      history.back();
+      return;
+    }
     activeGroup = null;
     activeProvider = null;
+    modalHistoryPushed = false;
   }
 
   function cycleGroupSort(groupName: string) {
@@ -399,6 +421,12 @@
         loading = false;
       }
     })();
+
+    window.addEventListener("popstate", handlePopState);
+  });
+
+  onDestroy(() => {
+    window.removeEventListener("popstate", handlePopState);
   });
 
   $effect(() => {
@@ -469,7 +497,7 @@
                   {@const isTestingGroup = !!testingOwners[ownerKey]}
                   {@const progress = testingProgress[ownerKey]}
 
-                  <article class="relative border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 transition-colors overflow-hidden {r ? 'rounded-xl' : ''}">
+                  <article class="relative border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/50 transition-colors overflow-hidden {r ? 'rounded-xl' : ''}">
                     <div
                       class="w-full px-3 py-3 flex items-center justify-between gap-3 hover:bg-slate-50 dark:hover:bg-zinc-900/70 transition-colors text-left"
                       role="button"
@@ -484,8 +512,8 @@
                     >
                       <div class="min-w-0">
                         <div class="flex items-center gap-2 min-w-0">
-                          <p class="text-sm font-bold text-slate-900 dark:text-slate-200 truncate">{groupName}</p>
-                          <span class="text-[10px] border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 px-1.5 py-0.5 uppercase {r ? 'rounded-md' : ''}">{group?.type}</span>
+                          <p class="text-sm font-bold text-slate-900 dark:text-slate-200 truncate pl-0.5">{groupName}</p>
+                          <span class="text-[8px] border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 px-1.5 py-0.5 uppercase {r ? 'rounded-md' : ''}">{group?.type}</span>
                         </div>
                         <div class="mt-1 text-xs text-slate-500 dark:text-zinc-400 min-w-0">
                           <span class="truncate block">当前: <span class="font-mono">{group?.now || "-"}</span></span>
@@ -520,7 +548,7 @@
                   {@const isTesting = !!testingOwners[`provider:${name}`]}
                   {@const progress = testingProgress[`provider:${name}`]}
 
-                  <article class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 transition-colors overflow-hidden {r ? 'rounded-xl' : ''}">
+                  <article class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/50 transition-colors overflow-hidden {r ? 'rounded-xl' : ''}">
                     <div
                       class="w-full px-3 py-3 hover:bg-slate-50 dark:hover:bg-zinc-900/70 transition-colors text-left"
                       role="button"
@@ -607,6 +635,8 @@
 
   {#if activeGroup}
     {@const openedGroup = activeGroup}
+    {@const ownerKey = `group:${openedGroup}`}
+    {@const isTestingGroup = !!testingOwners[ownerKey]}
     <div
       class="fixed inset-0 z-50 bg-slate-950/55 p-3 md:p-6 flex items-center justify-center"
       role="button"
@@ -632,7 +662,7 @@
           <div class="text-sm font-bold text-slate-900 dark:text-slate-100">{activeGroup}</div>
           <div class="flex items-center gap-1.5">
             <button
-              class="inline-flex items-center gap-1.5 px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 text-xs font-bold {r ? 'rounded-lg' : ''}"
+              class="inline-flex items-center gap-1.5 px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 text-xs font-bold leading-none {r ? 'rounded-lg' : ''}"
               onclick={() => cycleGroupSort(openedGroup)}
               title="切换排序"
             >
@@ -647,7 +677,21 @@
                 <span>默认排序</span>
               {/if}
             </button>
-            <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 {r ? 'rounded-lg' : ''}" onclick={closeDetail}>
+
+            <button
+              class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 {r ? 'rounded-lg' : ''}"
+              onclick={(event) => testGroup(event, openedGroup)}
+              disabled={isTestingGroup}
+              title="测速当前策略组"
+            >
+              <Timer size={14} class={isTestingGroup ? "animate-pulse" : ""} />
+            </button>
+
+            <button
+              class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r ? 'rounded-lg' : ''}"
+              onclick={closeDetail}
+              title="关闭"
+            >
               <X size={14} />
             </button>
           </div>

@@ -54,12 +54,12 @@
 >
   <div class="flex items-center gap-1.5 min-w-0">
     <span class={`w-1.5 h-1.5 shrink-0 ${style.dot} ${rounded ? "rounded-lg" : ""}`}></span>
-    <span class="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{name}</span>
+    <span class="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate pl-0.5">{name}</span>
     {#if selected}
       <Check size={13} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
     {/if}
   </div>
-  <div class="mt-1.5 pt-1.5 border-t border-slate-200 dark:border-zinc-700 border-dashed flex items-center justify-between gap-1.5">
+  <div class="mt-1.5 pt-1 border-t border-slate-200 dark:border-zinc-700 border-dashed flex items-center justify-between gap-1.5">
     <span class="text-[10px] font-mono uppercase text-slate-400 dark:text-zinc-500 truncate">{type}</span>
     <button
       class={`text-[10px] font-mono font-bold px-1 border border-slate-300 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/80 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors ${style.text} ${rounded ? "rounded" : ""}`}
