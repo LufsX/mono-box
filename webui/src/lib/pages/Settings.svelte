@@ -9,7 +9,7 @@
   import * as clashMockApi from "$lib/api/clash.mock";
   import * as actionRealApi from "$lib/api/action";
   import * as actionMockApi from "$lib/api/action.mock";
-  import { getDefaultHomeLayoutSettings, loadHomeLayoutSettings, saveHomeLayoutSettings, roundedStore, type HomeModuleId } from "$lib/settings";
+  import { getDefaultHomeLayoutSettings, loadHomeLayoutSettings, saveHomeLayoutSettings, roundedStore, type BottomTabId, type HomeModuleId } from "$lib/settings";
   import Select from "$lib/components/Select.svelte";
 
   type ProxyMode = "rule" | "global" | "direct";
@@ -58,6 +58,14 @@
     panel: "面板快捷跳转",
     core: "核心状态与端口",
     log: "Terminal Logs",
+  };
+
+  const bottomTabLabels: Record<BottomTabId, string> = {
+    home: "首页",
+    proxies: "代理",
+    connections: "连接",
+    rules: "规则",
+    settings: "设置",
   };
 
   const toggleActionOptions = [
@@ -270,6 +278,32 @@
     if (target < 0 || target >= homeLayout.moduleOrder.length) return;
 
     const order = homeLayout.moduleOrder;
+    const [item] = order.splice(index, 1);
+    order.splice(target, 0, item);
+  }
+
+  function isBottomTabVisible(tabId: BottomTabId): boolean {
+    if (tabId === "settings") return true;
+    return !homeLayout.bottomTabHidden.includes(tabId);
+  }
+
+  function toggleBottomTabVisible(tabId: BottomTabId) {
+    if (tabId === "settings") return;
+
+    if (isBottomTabVisible(tabId)) {
+      homeLayout.bottomTabHidden.push(tabId);
+      return;
+    }
+
+    const idx = homeLayout.bottomTabHidden.indexOf(tabId);
+    if (idx !== -1) homeLayout.bottomTabHidden.splice(idx, 1);
+  }
+
+  function moveBottomTab(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= homeLayout.bottomTabOrder.length) return;
+
+    const order = homeLayout.bottomTabOrder;
     const [item] = order.splice(index, 1);
     order.splice(target, 0, item);
   }
@@ -550,6 +584,49 @@
         <CheckBox id="rounded-ui" checked={homeLayout.rounded} onchange={() => (homeLayout.rounded = !homeLayout.rounded)} label="使用圆润风格" />
 
         <span class="text-xs text-slate-500 dark:text-slate-400">开启后所有元素使用圆角</span>
+      </div>
+
+      <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>
+
+      <div class="space-y-2">
+        <p class="text-sm font-bold text-slate-900 dark:text-slate-200">底部 Tab 显示与排序</p>
+        {#each homeLayout.bottomTabOrder as tabId, index (tabId)}
+          <div
+            animate:flip={{ duration: 220, easing: cubicOut }}
+            class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 {r ? 'rounded-lg' : ''}"
+          >
+            {#if tabId === "settings"}
+              <div class="pointer-events-none opacity-90">
+                <CheckBox id={`tab-${tabId}`} checked={true} onchange={() => {}} label={`${bottomTabLabels[tabId]} (固定)`} bare />
+              </div>
+            {:else}
+              <CheckBox id={`tab-${tabId}`} checked={isBottomTabVisible(tabId)} onchange={() => toggleBottomTabVisible(tabId)} label={bottomTabLabels[tabId]} bare />
+            {/if}
+            <div class="flex items-center gap-1">
+              <button
+                type="button"
+                onclick={() => moveBottomTab(index, -1)}
+                class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors
+                {r ? 'rounded-lg' : ''}"
+                disabled={index === 0}
+                aria-label="上移"
+              >
+                <ArrowUp size={14} />
+              </button>
+              <button
+                type="button"
+                onclick={() => moveBottomTab(index, 1)}
+                class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors
+                {r ? 'rounded-lg' : ''}"
+                disabled={index === homeLayout.bottomTabOrder.length - 1}
+                aria-label="下移"
+              >
+                <ArrowDown size={14} />
+              </button>
+            </div>
+          </div>
+        {/each}
+        <span class="text-xs text-slate-500 dark:text-slate-400">首页与设置固定显示；规则禁用为临时操作，重启后失效</span>
       </div>
 
       <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>

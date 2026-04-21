@@ -2,6 +2,10 @@ import { writable } from "svelte/store";
 
 export type HomeModuleId = "tun" | "proxy" | "stats" | "service" | "panel" | "core" | "log";
 
+export type BottomTabId = "home" | "proxies" | "connections" | "rules" | "settings";
+
+export const ALL_BOTTOM_TABS: BottomTabId[] = ["home", "proxies", "connections", "rules", "settings"];
+
 export interface HomeLayoutSettings {
   version: 1;
   moduleOrder: HomeModuleId[];
@@ -10,6 +14,8 @@ export interface HomeLayoutSettings {
   proxyTestUrl: string;
   edgeToEdge: boolean;
   rounded: boolean;
+  bottomTabOrder: BottomTabId[];
+  bottomTabHidden: BottomTabId[];
 }
 
 const STORAGE_KEY = "mono-box.home-layout";
@@ -24,6 +30,8 @@ const DEFAULT_SETTINGS: HomeLayoutSettings = {
   proxyTestUrl: "http://cp.cloudflare.com/generate_204",
   edgeToEdge: true,
   rounded: false,
+  bottomTabOrder: [...ALL_BOTTOM_TABS],
+  bottomTabHidden: [],
 };
 
 export function getDefaultHomeLayoutSettings(): HomeLayoutSettings {
@@ -43,6 +51,12 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     proxyTestUrl?: unknown;
     edgeToEdge?: unknown;
     rounded?: unknown;
+    bottomTabOrder?: unknown;
+    bottomTabHidden?: unknown;
+    tabProxiesEnabled?: unknown;
+    tabConnectionsEnabled?: unknown;
+    tabRulesEnabled?: unknown;
+    rulesEnabled?: unknown;
   };
   if (raw.version !== 1) {
     return getDefaultHomeLayoutSettings();
@@ -84,6 +98,41 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     }
   }
 
+  const tabOrderSet = new Set<BottomTabId>();
+  if (Array.isArray(raw.bottomTabOrder)) {
+    for (const item of raw.bottomTabOrder) {
+      if (typeof item === "string" && ALL_BOTTOM_TABS.includes(item as BottomTabId)) {
+        tabOrderSet.add(item as BottomTabId);
+      }
+    }
+  }
+
+  const bottomTabOrder = tabOrderSet.size ? [...tabOrderSet] : [...ALL_BOTTOM_TABS];
+  for (const tabId of ALL_BOTTOM_TABS) {
+    if (!bottomTabOrder.includes(tabId)) {
+      bottomTabOrder.push(tabId);
+    }
+  }
+
+  const bottomTabHiddenSet = new Set<BottomTabId>();
+  if (Array.isArray(raw.bottomTabHidden)) {
+    for (const item of raw.bottomTabHidden) {
+      if (typeof item === "string" && ALL_BOTTOM_TABS.includes(item as BottomTabId)) {
+        bottomTabHiddenSet.add(item as BottomTabId);
+      }
+    }
+  } else {
+    const proxiesEnabled = typeof raw.tabProxiesEnabled === "boolean" ? raw.tabProxiesEnabled : true;
+    const connectionsEnabled = typeof raw.tabConnectionsEnabled === "boolean" ? raw.tabConnectionsEnabled : true;
+    const rulesEnabled = typeof raw.tabRulesEnabled === "boolean" ? raw.tabRulesEnabled : typeof raw.rulesEnabled === "boolean" ? raw.rulesEnabled : false;
+
+    if (!proxiesEnabled) bottomTabHiddenSet.add("proxies");
+    if (!connectionsEnabled) bottomTabHiddenSet.add("connections");
+    if (!rulesEnabled) bottomTabHiddenSet.add("rules");
+  }
+
+  bottomTabHiddenSet.delete("settings");
+
   return {
     version: 1,
     moduleOrder,
@@ -92,6 +141,8 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     proxyTestUrl: typeof raw.proxyTestUrl === "string" ? raw.proxyTestUrl.trim() : "http://cp.cloudflare.com/generate_204",
     edgeToEdge: typeof raw.edgeToEdge === "boolean" ? raw.edgeToEdge : true,
     rounded: typeof raw.rounded === "boolean" ? raw.rounded : false,
+    bottomTabOrder,
+    bottomTabHidden: [...bottomTabHiddenSet],
   };
 }
 
@@ -117,12 +168,19 @@ export function saveHomeLayoutSettings(settings: HomeLayoutSettings): void {
     return;
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeHomeLayoutSettings(settings)));
+  const normalized = normalizeHomeLayoutSettings(settings);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  bottomTabOrderStore.set([...normalized.bottomTabOrder]);
+  bottomTabHiddenStore.set([...normalized.bottomTabHidden]);
 }
 
 export const roundedStore = writable(false);
+export const bottomTabOrderStore = writable<BottomTabId[]>([...ALL_BOTTOM_TABS]);
+export const bottomTabHiddenStore = writable<BottomTabId[]>(["rules"]);
 
 export function initRoundedStore(): void {
   const settings = loadHomeLayoutSettings();
   roundedStore.set(settings.rounded);
+  bottomTabOrderStore.set([...settings.bottomTabOrder]);
+  bottomTabHiddenStore.set([...settings.bottomTabHidden]);
 }

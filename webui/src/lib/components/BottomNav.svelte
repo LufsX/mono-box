@@ -1,20 +1,36 @@
 <script lang="ts">
-  import { House, Settings, Waypoints, Activity } from "@lucide/svelte";
-  import { roundedStore } from "$lib/settings";
+  import { House, Settings, Waypoints, Activity, ListChecks } from "@lucide/svelte";
+  import { bottomTabHiddenStore, bottomTabOrderStore, roundedStore, type BottomTabId } from "$lib/settings";
 
   let { currentPath = $bindable() }: { currentPath: string } = $props();
 
   const r = $derived($roundedStore);
+  const bottomTabOrder = $derived($bottomTabOrderStore);
+  const bottomTabHidden = $derived($bottomTabHiddenStore);
 
-  const navItems = [
-    { href: "#/", label: "首页", icon: House },
-    { href: "#/proxies", label: "代理", icon: Waypoints },
-    { href: "#/connections", label: "连接", icon: Activity },
-    { href: "#/settings", label: "设置", icon: Settings },
-  ] as const;
+  const visibleTabs = $derived(
+    (() => {
+      const hiddenSet = new Set(bottomTabHidden);
+      hiddenSet.delete("settings");
+      return bottomTabOrder.filter((tabId) => tabId === "settings" || !hiddenSet.has(tabId));
+    })(),
+  );
+
+  function normalizePath(hash: string): string {
+    const base = (hash || "#/").split("?")[0];
+    return base || "#/";
+  }
+
+  const TAB_META: Record<BottomTabId, { href: string; label: string; icon: any }> = {
+    home: { href: "#/", label: "首页", icon: House },
+    proxies: { href: "#/proxies", label: "代理", icon: Waypoints },
+    connections: { href: "#/connections", label: "连接", icon: Activity },
+    rules: { href: "#/rules", label: "规则", icon: ListChecks },
+    settings: { href: "#/settings", label: "设置", icon: Settings },
+  };
 
   function linkClass(href: string): string {
-    return currentPath === href ? "text-slate-900 dark:text-slate-100" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200";
+    return normalizePath(currentPath) === href ? "text-slate-900 dark:text-slate-100" : "text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200";
   }
 </script>
 
@@ -24,10 +40,11 @@
   style="padding-bottom: var(--app-bottombar-safe, env(safe-area-inset-bottom, 0px)); height: var(--app-bottombar-height, calc(4rem + env(safe-area-inset-bottom, 0px)));"
 >
   <div class="flex items-center justify-around h-16">
-    {#each navItems as item}
-      <a href={item.href} class={`flex flex-col items-center justify-center flex-1 h-full transition-colors outline-none ${linkClass(item.href)}`} onclick={() => (currentPath = item.href)}>
-        <item.icon size={20} strokeWidth={2} />
-        <span class="text-xs font-bold mt-1">{item.label}</span>
+    {#each visibleTabs as tabId (tabId)}
+      {@const meta = TAB_META[tabId]}
+      <a href={meta.href} class={`flex flex-col items-center justify-center flex-1 h-full transition-colors outline-none ${linkClass(meta.href)}`} onclick={() => (currentPath = meta.href)}>
+        <meta.icon size={20} strokeWidth={2} />
+        <span class="text-xs font-bold mt-1">{meta.label}</span>
       </a>
     {/each}
   </div>
