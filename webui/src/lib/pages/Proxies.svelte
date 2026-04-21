@@ -443,8 +443,9 @@
 <main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-4">
   <section in:fly={{ y: 10, duration: 220, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 p-3 transition-colors {r ? 'rounded-xl' : ''}">
     <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
-      <Select id="proxy-mode" options={modeOptions} bind:value={modeSelectValue} />
-
+      <div class="max-w-40">
+        <Select id="proxy-mode" options={modeOptions} bind:value={modeSelectValue} />
+      </div>
       <div class="flex font-bold text-sm">
         <button
           class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 {r ? 'rounded-l-lg' : ''} {currentView === 'proxies'

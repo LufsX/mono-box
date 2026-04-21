@@ -7,7 +7,7 @@
   import * as clashRealApi from "$lib/api/clash";
   import * as clashMockApi from "$lib/api/clash.mock";
   import { roundedStore } from "$lib/settings";
-  import { formatBytes } from "$lib/utils";
+  import { clashConnectionTagClass, formatBytes } from "$lib/utils";
 
   const useMockApi = import.meta.env.MODE !== "production";
   const clashApi = useMockApi ? clashMockApi : clashRealApi;
@@ -81,6 +81,7 @@
     const m2 = m % 60;
     return `${h}h ${m2}m`;
   }
+
 
   function escapeHtml(input: string): string {
     return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -260,7 +261,7 @@
 
     <div class="flex items-center gap-2 shrink-0">
       <button
-        class="inline-flex items-center gap-2 px-2.5 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-900/90 dark:hover:bg-zinc-900/70 dark:text-zinc-200 text-xs font-bold transition-colors
+        class="inline-flex items-center gap-2 h-8 px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-900/90 dark:hover:bg-zinc-900/70 dark:text-zinc-200 text-xs font-bold leading-none transition-colors
         {r ? 'rounded-lg' : ''}"
         onclick={() => {
           sortMode = sortMode === "default" ? "host-asc" : sortMode === "host-asc" ? "host-desc" : "default";
@@ -280,7 +281,7 @@
       </button>
 
       <button
-        class="inline-flex items-center gap-2 px-3 py-1.5 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 text-xs font-bold transition-colors disabled:opacity-60
+        class="inline-flex items-center gap-2 h-8 px-3 py-1.5 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 text-xs font-bold leading-none transition-colors disabled:opacity-60
         {r ? 'rounded-lg' : ''}"
         onclick={closeAll}
         disabled={connections.length === 0}
@@ -359,12 +360,8 @@
 
             <div class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center text-xs text-slate-500 dark:text-zinc-500">
               <div class="flex items-center gap-2 min-w-0">
-                <span class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 {r ? 'rounded' : ''} text-[10px] font-semibold text-slate-600 dark:text-zinc-300">
-                  {conn.metadata.network.toUpperCase()}
-                </span>
-                <span class="px-1.5 py-0.5 bg-slate-100 dark:bg-zinc-800 {r ? 'rounded' : ''} text-[10px] font-semibold text-slate-600 dark:text-zinc-300">
-                  {conn.metadata.type}
-                </span>
+                <span class={clashConnectionTagClass("network", conn.metadata.network, r, "compact")}>{conn.metadata.network.toUpperCase()}</span>
+                <span class={clashConnectionTagClass("type", conn.metadata.type, r, "compact")}>{conn.metadata.type}</span>
                 {#if conn.rule}
                   <span class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 {r ? 'rounded' : ''} text-[10px] truncate">{conn.rule}</span>
                 {/if}
@@ -447,8 +444,8 @@
               {activeConn.metadata.host || activeConn.metadata.destinationIP}
             </div>
             <div class="flex gap-2 items-center flex-wrap">
-              <span class="px-2 py-1 bg-slate-100 dark:bg-zinc-800 {r ? 'rounded' : ''} text-xs font-semibold text-slate-700 dark:text-zinc-300">{activeConn.metadata.network.toUpperCase()}</span>
-              <span class="text-xs text-slate-600 dark:text-zinc-400">{activeConn.metadata.type}</span>
+              <span class={clashConnectionTagClass("network", activeConn.metadata.network, r, "normal")}>{activeConn.metadata.network.toUpperCase()}</span>
+              <span class={clashConnectionTagClass("type", activeConn.metadata.type, r, "normal")}>{activeConn.metadata.type}</span>
               {#if activeConn.rule}
                 <span class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 {r ? 'rounded' : ''} text-xs font-semibold"
                   >{activeConn.rule} {activeConn.rulePayload ? `(${activeConn.rulePayload})` : ""}</span
