@@ -47,6 +47,18 @@ export interface ClashProxyProvider {
 
 export type ClashProxyProviderMap = Record<string, ClashProxyProvider>;
 
+export interface ClashRuleProvider {
+  name: string;
+  type?: string;
+  vehicleType?: string;
+  updatedAt?: string;
+  rules?: unknown[];
+  ruleCount?: number;
+  [key: string]: unknown;
+}
+
+export type ClashRuleProviderMap = Record<string, ClashRuleProvider>;
+
 export interface BoxConfigValues {
   clashApiPort: number;
   clashApiSecret: string;
@@ -118,6 +130,23 @@ let mockProviders: ClashProxyProviderMap = {
       Total: 200 * 1024 * 1024 * 1024,
       Expire: Math.floor((Date.now() + 15 * 24 * 60 * 60 * 1000) / 1000),
     },
+  },
+};
+
+let mockRuleProviders: ClashRuleProviderMap = {
+  "Rules-A": {
+    name: "Rules-A",
+    type: "Rule",
+    vehicleType: "HTTP",
+    updatedAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+    ruleCount: 128,
+  },
+  "Rules-B": {
+    name: "Rules-B",
+    type: "Rule",
+    vehicleType: "File",
+    updatedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+    ruleCount: 42,
   },
 };
 
@@ -356,6 +385,25 @@ export async function getProxyProviders(): Promise<ClashProxyProviderMap> {
   return mockProviders;
 }
 
+export async function getRuleProviders(): Promise<{ providers: ClashRuleProviderMap }> {
+  return { providers: mockRuleProviders };
+}
+
+export async function updateRuleProvider(name: string): Promise<void> {
+  const provider = mockRuleProviders[name];
+  if (!provider) {
+    throw new Error(`Provider not found: ${name}`);
+  }
+
+  mockRuleProviders = {
+    ...mockRuleProviders,
+    [name]: {
+      ...provider,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+}
+
 export async function updateProxyProvider(name: string): Promise<void> {
   if (!mockProviders[name]) {
     throw new Error(`Provider not found: ${name}`);
@@ -527,4 +575,48 @@ export async function deleteConnection(id: string): Promise<void> {
 
 export async function closeAllConnections(): Promise<void> {
   mockConnections = [];
+}
+
+export interface ClashRule {
+  type?: string;
+  payload?: string;
+  proxy?: string;
+  disable?: boolean;
+  disabled?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ClashRulesResponse {
+  rules: ClashRule[];
+}
+
+const mockRulesBase: Array<Omit<ClashRule, "disable" | "disabled">> = [
+  { type: "DOMAIN-SUFFIX", payload: "google.com", proxy: "Proxy" },
+  { type: "DOMAIN-KEYWORD", payload: "github", proxy: "Auto" },
+  { type: "IP-CIDR", payload: "10.0.0.0/8", proxy: "DIRECT" },
+  { type: "MATCH", payload: "", proxy: "Proxy" },
+];
+
+const mockDisabledRuleIndexes = new Set<number>();
+
+export async function getRules(): Promise<ClashRulesResponse> {
+  return {
+    rules: mockRulesBase.map((rule, index) => ({
+      ...rule,
+      disable: mockDisabledRuleIndexes.has(index),
+    })),
+  };
+}
+
+export async function patchRulesDisable(payload: Record<string, boolean>): Promise<void> {
+  for (const [key, value] of Object.entries(payload || {})) {
+    const index = Number.parseInt(key, 10);
+    if (!Number.isFinite(index)) continue;
+
+    if (value) {
+      mockDisabledRuleIndexes.add(index);
+    } else {
+      mockDisabledRuleIndexes.delete(index);
+    }
+  }
 }

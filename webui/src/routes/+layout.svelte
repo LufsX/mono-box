@@ -11,6 +11,7 @@
   import Proxies from "$lib/pages/Proxies.svelte";
   import Settings from "$lib/pages/Settings.svelte";
   import Connections from "$lib/pages/Connections.svelte";
+  import Rules from "$lib/pages/Rules.svelte";
   import "./layout.css";
 
   const isProd = import.meta.env.MODE !== "production";
@@ -26,6 +27,8 @@
   let { children } = $props();
 
   let currentHash = $state("#/");
+
+  const currentPath = $derived((currentHash || "#/").split("?")[0] || "#/");
 
   onMount(() => {
     const handleHashChange = () => {
@@ -49,12 +52,14 @@
   {#key currentHash}
     <div class="app-page-wrapper" in:fly={{ y: 12, duration: 300, easing: cubicOut }} out:fade={{ duration: 180 }}>
       <div class="app-scroll">
-        {#if currentHash === "#/settings"}
+        {#if currentPath === "#/settings"}
           <Settings />
-        {:else if currentHash === "#/proxies"}
+        {:else if currentPath === "#/proxies"}
           <Proxies />
-        {:else if currentHash === "#/connections"}
+        {:else if currentPath === "#/connections"}
           <Connections />
+        {:else if currentPath === "#/rules"}
+          <Rules />
         {:else}
           <Home />
         {/if}

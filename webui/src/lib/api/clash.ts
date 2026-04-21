@@ -49,6 +49,19 @@ export interface ClashProxyProvider {
 
 export type ClashProxyProviderMap = Record<string, ClashProxyProvider>;
 
+export interface ClashRuleProvider {
+  name: string;
+  type?: string;
+  vehicleType?: string;
+  updatedAt?: string;
+  // 规则集合常见字段，尽量宽松兼容不同内核返回
+  rules?: unknown[];
+  ruleCount?: number;
+  [key: string]: unknown;
+}
+
+export type ClashRuleProviderMap = Record<string, ClashRuleProvider>;
+
 export interface BoxConfigValues {
   clashApiPort: number;
   clashApiSecret: string;
@@ -411,6 +424,27 @@ export async function getProxyProviders(): Promise<ClashProxyProviderMap> {
 }
 
 /**
+ * 获取规则 Provider（规则集合）列表
+ */
+export async function getRuleProviders(): Promise<ClashRuleProviderMap> {
+  const result = await clashRequest<any>("GET", "/providers/rules");
+  if (result && typeof result === "object") {
+    if (result.providers && typeof result.providers === "object") {
+      return result.providers as ClashRuleProviderMap;
+    }
+    return result as ClashRuleProviderMap;
+  }
+  return {};
+}
+
+/**
+ * 更新指定规则 Provider（规则集合）
+ */
+export async function updateRuleProvider(name: string): Promise<void> {
+  await clashRequest("PUT", `/providers/rules/${encodeURIComponent(name)}`);
+}
+
+/**
  * 更新指定 Provider
  */
 export async function updateProxyProvider(name: string): Promise<void> {
@@ -547,4 +581,25 @@ export async function deleteConnection(id: string): Promise<void> {
 
 export async function closeAllConnections(): Promise<void> {
   await clashRequest("DELETE", "/connections");
+}
+
+export interface ClashRule {
+  type?: string;
+  payload?: string;
+  proxy?: string;
+  disable?: boolean;
+  disabled?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ClashRulesResponse {
+  rules: (ClashRule | string)[];
+}
+
+export async function getRules(): Promise<ClashRulesResponse | (ClashRule | string)[]> {
+  return await clashRequest("GET", "/rules");
+}
+
+export async function patchRulesDisable(payload: Record<string, boolean>): Promise<void> {
+  await clashRequest("PATCH", "/rules/disable", payload);
 }
