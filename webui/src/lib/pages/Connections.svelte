@@ -432,13 +432,13 @@
         in:scale={{ duration: 230, easing: cubicOut, start: 0.97 }}
         out:scale={{ duration: 170, easing: cubicOut, start: 1 }}
       >
-        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-300 dark:border-zinc-700">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-300 dark:border-zinc-700 shrink-0">
           <div class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate pr-4">连接详情</div>
           <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 {r ? 'rounded-lg' : ''}" onclick={closeDetail}>
             <X size={14} />
           </button>
         </div>
-        <div class="p-4 overflow-y-auto max-h-full flex flex-col gap-4">
+        <div class="p-4 overflow-y-auto flex-1 flex flex-col gap-4">
           <div class="flex flex-col gap-2">
             <div class="text-lg font-mono font-bold text-slate-800 dark:text-slate-200 break-all select-text">
               {activeConn.metadata.host || activeConn.metadata.destinationIP}
@@ -531,17 +531,17 @@
               </div>
             {/if}
           </div>
+        </div>
 
-          <div class="mt-2 pt-4 border-t border-slate-200 dark:border-zinc-800 flex justify-end">
-            <button
-              class="flex items-center justify-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-medium transition-colors w-full sm:w-auto
-              {r ? 'rounded-lg' : ''}"
-              onclick={() => closeConnection(activeConn.id)}
-            >
-              <Trash2 size={16} />
-              <span>断开此连接</span>
-            </button>
-          </div>
+        <div class="px-4 py-3 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/20 flex justify-end shrink-0">
+          <button
+            class="flex items-center justify-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-medium transition-colors w-full sm:w-auto
+            {r ? 'rounded-lg' : ''}"
+            onclick={() => closeConnection(activeConn.id)}
+          >
+            <Trash2 size={16} />
+            <span>断开此连接</span>
+          </button>
         </div>
       </div>
     </div>
