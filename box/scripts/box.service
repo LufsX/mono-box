@@ -79,14 +79,17 @@ log() {
 resolve_user_group() {
     case "${CORE_USER_GROUP}" in
         *:*)
-            core_user=$(echo "${CORE_USER_GROUP}" | awk -F ':' '{print $1}')
-            core_group=$(echo "${CORE_USER_GROUP}" | awk -F ':' '{print $2}')
+            core_user="${CORE_USER_GROUP%%:*}"
+            core_group="${CORE_USER_GROUP#*:}"
             ;;
         *)
             core_user="root"
             core_group="net_admin"
             ;;
     esac
+
+    [ -n "${core_user}" ] || core_user="root"
+    [ -n "${core_group}" ] || core_group="net_admin"
 
     if ! id -u "${core_user}" > /dev/null 2>&1 || ! id -g "${core_group}" > /dev/null 2>&1; then
         core_user="root"

@@ -59,12 +59,30 @@ export interface ClashRuleProvider {
 
 export type ClashRuleProviderMap = Record<string, ClashRuleProvider>;
 
+export type ControlMode = "disable" | "switch" | "tun" | "selector" | "mode";
+export type ProxyMode = "rule" | "global" | "direct";
+
 export interface BoxConfigValues {
   clashApiPort: number;
   clashApiSecret: string;
   toggleAction: "service" | "tun" | "mode_cycle";
   toggleTunTarget: "toggle" | "on" | "off";
-  toggleModeCycle: ("rule" | "global" | "direct")[];
+  toggleModeCycle: ProxyMode[];
+  useCustomDirect: boolean;
+  controlMode: ControlMode;
+  defaultTunEnable: string;
+  directTunEnable: string;
+  proxyTunEnable: string;
+  directTunEnableList: string;
+  selectOutbound: string;
+  defaultOutbound: string;
+  directOutbound: string;
+  proxyOutbound: string;
+  directOutboundList: string;
+  defaultClashMode: string;
+  directClashMode: string;
+  proxyClashMode: string;
+  directClashModeList: string;
 }
 
 export type ClashVersionCheckResult =
@@ -81,7 +99,27 @@ export type ClashVersionCheckResult =
 
 let mockMode = "rule";
 let mockTunEnabled = false;
-let mockBoxConfig = 'clash_api_port=9090\nclash_api_secret=\ntoggle_action="service"\ntoggle_tun_target="toggle"\ntoggle_mode_cycle="rule,global,direct"\n';
+let mockBoxConfig = `clash_api_port=9090
+clash_api_secret=
+toggle_action="service"
+toggle_tun_target="toggle"
+toggle_mode_cycle="rule,global,direct"
+use_custom_direct=false
+ctr_mode=disable
+default_tun_enable="true"
+direct_tun_enable="false"
+proxy_tun_enable=
+direct_tun_enable_list=""
+select_outbound=""
+default_outbound=""
+direct_outbound=""
+proxy_outbound=
+direct_outbound_list=""
+default_clash_mode=""
+direct_clash_mode=""
+proxy_clash_mode=
+direct_clash_mode_list=""
+`;
 
 let mockUploadTotal = 128 * 1024 * 1024;
 let mockDownloadTotal = 512 * 1024 * 1024;
@@ -181,6 +219,28 @@ function upsertConfigValue(content: string, key: string, value: string): string 
   return `${content}${suffix}${line}\n`;
 }
 
+function stripConfigValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+
+function readConfigValue(content: string, key: string, fallback = ""): string {
+  const match = content.match(new RegExp(`^${escapeRegExp(key)}=(.*)$`, "m"));
+  return match ? stripConfigValue(match[1]) : fallback;
+}
+
+function normalizeControlMode(value: string): ControlMode {
+  return value === "switch" || value === "tun" || value === "selector" || value === "mode" ? value : "disable";
+}
+
+function normalizeProxyMode(value: string): ProxyMode | null {
+  const mode = value.trim().toLowerCase();
+  return mode === "rule" || mode === "global" || mode === "direct" ? mode : null;
+}
+
 class MockSocket {
   onclose: ((this: WebSocket, ev: CloseEvent) => any) | null = null;
   onerror: ((this: WebSocket, ev: Event) => any) | null = null;
@@ -230,22 +290,17 @@ class MockSocket {
 
 export function parseBoxConfig(content: string): BoxConfigValues {
   const portMatch = content.match(/^clash_api_port=(\d+)\s*$/m);
-  const secretMatch = content.match(/^clash_api_secret=(.*)$/m);
-  const toggleActionMatch = content.match(/^toggle_action=(.*)$/m);
-  const toggleTunTargetMatch = content.match(/^toggle_tun_target=(.*)$/m);
-  const toggleModeCycleMatch = content.match(/^toggle_mode_cycle=(.*)$/m);
-
-  const toggleActionRaw = toggleActionMatch ? toggleActionMatch[1].replace(/"/g, "").trim() : "service";
-  const toggleTunTargetRaw = toggleTunTargetMatch ? toggleTunTargetMatch[1].replace(/"/g, "").trim() : "toggle";
-  const toggleModeCycleRaw = toggleModeCycleMatch ? toggleModeCycleMatch[1].replace(/"/g, "").trim() : "rule,global,direct";
+  const toggleActionRaw = readConfigValue(content, "toggle_action", "service");
+  const toggleTunTargetRaw = readConfigValue(content, "toggle_tun_target", "toggle");
+  const toggleModeCycleRaw = readConfigValue(content, "toggle_mode_cycle", "rule,global,direct");
 
   const toggleAction = ["service", "tun", "mode_cycle"].includes(toggleActionRaw) ? (toggleActionRaw as "service" | "tun" | "mode_cycle") : "service";
   const toggleTunTarget = ["toggle", "on", "off"].includes(toggleTunTargetRaw) ? (toggleTunTargetRaw as "toggle" | "on" | "off") : "toggle";
 
-  const modeSet = new Set<"rule" | "global" | "direct">();
+  const modeSet = new Set<ProxyMode>();
   for (const mode of toggleModeCycleRaw.split(",")) {
-    const normalized = mode.trim().toLowerCase();
-    if (normalized === "rule" || normalized === "global" || normalized === "direct") {
+    const normalized = normalizeProxyMode(mode);
+    if (normalized) {
       modeSet.add(normalized);
     }
   }
@@ -257,10 +312,25 @@ export function parseBoxConfig(content: string): BoxConfigValues {
 
   return {
     clashApiPort: portMatch ? parseInt(portMatch[1], 10) : 9090,
-    clashApiSecret: secretMatch ? secretMatch[1].trim() : "",
+    clashApiSecret: readConfigValue(content, "clash_api_secret"),
     toggleAction,
     toggleTunTarget,
     toggleModeCycle,
+    useCustomDirect: readConfigValue(content, "use_custom_direct", "false") === "true",
+    controlMode: normalizeControlMode(readConfigValue(content, "ctr_mode", "disable")),
+    defaultTunEnable: readConfigValue(content, "default_tun_enable", "true"),
+    directTunEnable: readConfigValue(content, "direct_tun_enable", "false"),
+    proxyTunEnable: readConfigValue(content, "proxy_tun_enable"),
+    directTunEnableList: readConfigValue(content, "direct_tun_enable_list"),
+    selectOutbound: readConfigValue(content, "select_outbound"),
+    defaultOutbound: readConfigValue(content, "default_outbound"),
+    directOutbound: readConfigValue(content, "direct_outbound"),
+    proxyOutbound: readConfigValue(content, "proxy_outbound"),
+    directOutboundList: readConfigValue(content, "direct_outbound_list"),
+    defaultClashMode: readConfigValue(content, "default_clash_mode"),
+    directClashMode: readConfigValue(content, "direct_clash_mode"),
+    proxyClashMode: readConfigValue(content, "proxy_clash_mode"),
+    directClashModeList: readConfigValue(content, "direct_clash_mode_list"),
   };
 }
 

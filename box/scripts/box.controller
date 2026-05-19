@@ -30,7 +30,7 @@ ensure_runtime_dir() {
 
 normalize_ctr_mode() {
     case "${ctr_mode}" in
-        disable | switch | selector | mode) ;;
+        disable | switch | tun | selector | mode) ;;
         *)
             ctr_mode="disable"
             ;;
@@ -101,36 +101,59 @@ get_network_state() {
     return 0
 }
 
-choose_selector_target() {
-    local network_state="$1"
+choose_cellular_target() {
+    local override="$1"
+    local last_value="$2"
+    local default_value="$3"
 
-    if [ "${network_state}" = "cellular" ]; then
-        if [ -n "${proxy_outbound}" ]; then
-            printf '%s' "${proxy_outbound}"
-            return 0
-        fi
-
-        if [ -n "${Outbound}" ]; then
-            printf '%s' "${Outbound}"
-            return 0
-        fi
-
-        printf '%s' "${default_outbound}"
-        return 0
+    if [ -n "${override}" ]; then
+        printf '%s' "${override}"
+    elif [ -n "${last_value}" ]; then
+        printf '%s' "${last_value}"
+    else
+        printf '%s' "${default_value}"
     fi
+}
+
+choose_wifi_target() {
+    local default_value="$1"
+    local mapping="$2"
+    local ssid_name
+    local mapped
 
     if [ "${use_custom_direct}" = "true" ]; then
-        local ssid_name
-        local mapped
         ssid_name=$(ssid)
-        mapped=$(getTarget "${direct_outbound_list}" "${ssid_name}")
+        mapped=$(getTarget "${mapping}" "${ssid_name}")
         if [ -n "${mapped}" ]; then
             printf '%s' "${mapped}"
             return 0
         fi
     fi
 
-    printf '%s' "${direct_outbound}"
+    printf '%s' "${default_value}"
+}
+
+choose_selector_target() {
+    local network_state="$1"
+
+    if [ "${network_state}" = "cellular" ]; then
+        choose_cellular_target "${proxy_outbound}" "${Outbound}" "${default_outbound}"
+        return 0
+    fi
+
+    choose_wifi_target "${direct_outbound}" "${direct_outbound_list}"
+    return 0
+}
+
+choose_tun_target() {
+    local network_state="$1"
+
+    if [ "${network_state}" = "cellular" ]; then
+        choose_cellular_target "${proxy_tun_enable}" "" "${default_tun_enable}"
+        return 0
+    fi
+
+    choose_wifi_target "${direct_tun_enable}" "${direct_tun_enable_list}"
     return 0
 }
 
@@ -138,33 +161,16 @@ choose_clash_mode_target() {
     local network_state="$1"
 
     if [ "${network_state}" = "cellular" ]; then
-        if [ -n "${proxy_clash_mode}" ]; then
-            printf '%s' "${proxy_clash_mode}"
-            return 0
-        fi
-
-        if [ -n "${ClashMode}" ]; then
-            printf '%s' "${ClashMode}"
-            return 0
-        fi
-
-        printf '%s' "${default_clash_mode}"
+        choose_cellular_target "${proxy_clash_mode}" "${ClashMode}" "${default_clash_mode}"
         return 0
     fi
 
-    if [ "${use_custom_direct}" = "true" ]; then
-        local ssid_name
-        local mapped
-        ssid_name=$(ssid)
-        mapped=$(getTarget "${direct_clash_mode_list}" "${ssid_name}")
-        if [ -n "${mapped}" ]; then
-            printf '%s' "${mapped}"
-            return 0
-        fi
-    fi
-
-    printf '%s' "${direct_clash_mode}"
+    choose_wifi_target "${direct_clash_mode}" "${direct_clash_mode_list}"
     return 0
+}
+
+is_bool_target() {
+    [ "$1" = "true" ] || [ "$1" = "false" ]
 }
 
 apply_switch_policy() {
@@ -175,6 +181,17 @@ apply_switch_policy() {
     else
         status && stop_core
     fi
+}
+
+apply_tun_policy() {
+    local network_state="$1"
+    local target
+
+    status || return 0
+    target=$(choose_tun_target "${network_state}")
+    is_bool_target "${target}" || return 0
+
+    setTun "${target}" > /dev/null 2>&1
 }
 
 apply_selector_policy() {
@@ -239,6 +256,9 @@ handle_network_policy_event() {
     case "${ctr_mode}" in
         switch)
             apply_switch_policy "${network_state}"
+            ;;
+        tun)
+            apply_tun_policy "${network_state}"
             ;;
         selector)
             apply_selector_policy "${network_state}"

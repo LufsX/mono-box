@@ -13,6 +13,7 @@
   import Select from "$lib/components/Select.svelte";
 
   type ProxyMode = "rule" | "global" | "direct";
+  type ControlMode = "disable" | "switch" | "tun" | "selector" | "mode";
   type SettingsSectionState = {
     boxConfig: boolean;
     webUi: boolean;
@@ -45,6 +46,21 @@
   let toggleTunTarget = $state<"toggle" | "on" | "off">("toggle");
   let toggleModeCycle = $state<ProxyMode[]>(["rule", "global", "direct"]);
   let toggleModeOrder = $state<ProxyMode[]>([...ALL_PROXY_MODES]);
+  let controlMode = $state<ControlMode>("disable");
+  let useCustomDirect = $state(false);
+  let defaultTunEnable = $state("true");
+  let directTunEnable = $state("false");
+  let proxyTunEnable = $state("");
+  let directTunEnableList = $state("");
+  let selectOutbound = $state("");
+  let defaultOutbound = $state("");
+  let directOutbound = $state("");
+  let proxyOutbound = $state("");
+  let directOutboundList = $state("");
+  let defaultClashMode = $state("");
+  let directClashMode = $state("");
+  let proxyClashMode = $state("");
+  let directClashModeList = $state("");
   let currentVersion = $state("-");
   let currentVersionCode = $state("");
   const r = $derived($roundedStore);
@@ -93,6 +109,27 @@
     { value: "toggle", label: "按当前状态切换" },
     { value: "on", label: "固定开启" },
     { value: "off", label: "固定关闭" },
+  ];
+
+  const controlModeOptions = [
+    { value: "disable", label: "禁用事件控制" },
+    { value: "switch", label: "启停核心" },
+    { value: "tun", label: "切换 TUN" },
+    { value: "selector", label: "切换代理策略组" },
+    { value: "mode", label: "切换 Clash 模式" },
+  ];
+
+  const tunStateOptions = [
+    { value: "", label: "不改变" },
+    { value: "true", label: "开启" },
+    { value: "false", label: "关闭" },
+  ];
+
+  const clashModeTargetOptions = [
+    { value: "", label: "不指定" },
+    { value: "rule", label: "规则" },
+    { value: "global", label: "全局" },
+    { value: "direct", label: "直连" },
   ];
 
   function triggerSavedState() {
@@ -206,6 +243,16 @@
     return [...selected, ...remaining];
   }
 
+  function quoteBoxConfigValue(value: string): string {
+    return `"${value
+      .replace(/\r?\n/g, ";")
+      .replace(/\\/g, "\\\\")
+      .replace(/"/g, '\\"')
+      .replace(/\$/g, "\\$")
+      .replace(/`/g, "\\`")
+      .trim()}"`;
+  }
+
   async function loadBoxConfig() {
     try {
       boxConfigLoading = true;
@@ -219,6 +266,21 @@
       toggleTunTarget = parsed.toggleTunTarget;
       toggleModeCycle = [...parsed.toggleModeCycle];
       toggleModeOrder = buildToggleModeOrder(parsed.toggleModeCycle);
+      controlMode = parsed.controlMode;
+      useCustomDirect = parsed.useCustomDirect;
+      defaultTunEnable = parsed.defaultTunEnable;
+      directTunEnable = parsed.directTunEnable;
+      proxyTunEnable = parsed.proxyTunEnable;
+      directTunEnableList = parsed.directTunEnableList;
+      selectOutbound = parsed.selectOutbound;
+      defaultOutbound = parsed.defaultOutbound;
+      directOutbound = parsed.directOutbound;
+      proxyOutbound = parsed.proxyOutbound;
+      directOutboundList = parsed.directOutboundList;
+      defaultClashMode = parsed.defaultClashMode;
+      directClashMode = parsed.directClashMode;
+      proxyClashMode = parsed.proxyClashMode;
+      directClashModeList = parsed.directClashModeList;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       boxConfigError = `无法读取 box.config 文件: ${message}`;
@@ -235,10 +297,25 @@
 
       await clashApi.updateBoxConfigValues({
         clash_api_port: boxConfigPort.toString(),
-        clash_api_secret: boxConfigSecret,
+        clash_api_secret: quoteBoxConfigValue(boxConfigSecret),
         toggle_action: `"${toggleAction}"`,
         toggle_tun_target: `"${toggleTunTarget}"`,
         toggle_mode_cycle: `"${toggleModeOrder.filter((mode) => toggleModeCycle.includes(mode)).join(",")}"`,
+        use_custom_direct: useCustomDirect ? "true" : "false",
+        ctr_mode: controlMode,
+        default_tun_enable: quoteBoxConfigValue(defaultTunEnable),
+        direct_tun_enable: quoteBoxConfigValue(directTunEnable),
+        proxy_tun_enable: quoteBoxConfigValue(proxyTunEnable),
+        direct_tun_enable_list: quoteBoxConfigValue(directTunEnableList),
+        select_outbound: quoteBoxConfigValue(selectOutbound),
+        default_outbound: quoteBoxConfigValue(defaultOutbound),
+        direct_outbound: quoteBoxConfigValue(directOutbound),
+        proxy_outbound: quoteBoxConfigValue(proxyOutbound),
+        direct_outbound_list: quoteBoxConfigValue(directOutboundList),
+        default_clash_mode: quoteBoxConfigValue(defaultClashMode),
+        direct_clash_mode: quoteBoxConfigValue(directClashMode),
+        proxy_clash_mode: quoteBoxConfigValue(proxyClashMode),
+        direct_clash_mode_list: quoteBoxConfigValue(directClashModeList),
       });
 
       triggerSavedState();
@@ -612,6 +689,167 @@
             </div>
           </div>
         {/if}
+
+        <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>
+
+        <div class="space-y-4">
+          <div class="flex flex-col gap-2">
+            <label for="control-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">网络事件控制</label>
+            <Select id="control-mode" bind:value={controlMode} options={controlModeOptions} disabled={boxConfigLoading} />
+            <span class="text-xs text-slate-500 dark:text-slate-400">监听 Wi-Fi / 蜂窝网络变化后执行对应策略</span>
+          </div>
+
+          {#if controlMode === "tun" || controlMode === "selector" || controlMode === "mode"}
+            <div in:slide={{ duration: 220, easing: cubicOut }} out:slide={{ duration: 180, easing: cubicOut }} class="space-y-4">
+              <CheckBox id="use-custom-direct" checked={useCustomDirect} onchange={() => (useCustomDirect = !useCustomDirect)} label="启用 SSID 自定义映射" />
+
+              {#if controlMode === "tun"}
+                <div class="space-y-4">
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="flex flex-col gap-2">
+                      <label for="default-tun-enable" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝默认 TUN</label>
+                      <Select id="default-tun-enable" bind:value={defaultTunEnable} options={tunStateOptions} disabled={boxConfigLoading} />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <label for="direct-tun-enable" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 默认 TUN</label>
+                      <Select id="direct-tun-enable" bind:value={directTunEnable} options={tunStateOptions} disabled={boxConfigLoading} />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <label for="proxy-tun-enable" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝覆盖 TUN</label>
+                      <Select id="proxy-tun-enable" bind:value={proxyTunEnable} options={tunStateOptions} disabled={boxConfigLoading} />
+                    </div>
+                  </div>
+
+                  {#if useCustomDirect}
+                    <div transition:slide={{ duration: 220, easing: cubicOut }} class="overflow-hidden">
+                      <div in:fly={{ y: -8, duration: 220, easing: cubicOut }} out:fly={{ y: -6, duration: 150, easing: cubicOut }} class="flex flex-col gap-2">
+                        <label for="direct-tun-enable-list" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID TUN 映射</label>
+                        <textarea
+                          id="direct-tun-enable-list"
+                          bind:value={directTunEnableList}
+                          disabled={boxConfigLoading}
+                          rows="2"
+                          class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm
+                          {r ? 'rounded-lg' : ''}"
+                          placeholder="CMCC_XXXX,true;TPLINK_XXXX,false"
+                        ></textarea>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">格式：SSID,true/false;SSID,true/false</span>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {:else if controlMode === "selector"}
+                <div class="space-y-4">
+                  <div class="flex flex-col gap-2">
+                    <label for="select-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">策略组名称</label>
+                    <input
+                      id="select-outbound"
+                      type="text"
+                      bind:value={selectOutbound}
+                      disabled={boxConfigLoading}
+                      class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50
+                      {r ? 'rounded-lg' : ''}"
+                      placeholder="Proxy"
+                    />
+                    <span class="text-xs text-slate-500 dark:text-slate-400">对应 Clash API 中的 selector 代理组</span>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="flex flex-col gap-2">
+                      <label for="default-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝默认</label>
+                      <input
+                        id="default-outbound"
+                        type="text"
+                        bind:value={defaultOutbound}
+                        disabled={boxConfigLoading}
+                        class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50
+                        {r ? 'rounded-lg' : ''}"
+                        placeholder="Proxy"
+                      />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <label for="direct-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 默认</label>
+                      <input
+                        id="direct-outbound"
+                        type="text"
+                        bind:value={directOutbound}
+                        disabled={boxConfigLoading}
+                        class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50
+                        {r ? 'rounded-lg' : ''}"
+                        placeholder="DIRECT"
+                      />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <label for="proxy-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝覆盖</label>
+                      <input
+                        id="proxy-outbound"
+                        type="text"
+                        bind:value={proxyOutbound}
+                        disabled={boxConfigLoading}
+                        class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50
+                        {r ? 'rounded-lg' : ''}"
+                        placeholder="留空使用上次状态"
+                      />
+                    </div>
+                  </div>
+
+                  {#if useCustomDirect}
+                    <div transition:slide={{ duration: 220, easing: cubicOut }} class="overflow-hidden">
+                      <div in:fly={{ y: -8, duration: 220, easing: cubicOut }} out:fly={{ y: -6, duration: 150, easing: cubicOut }} class="flex flex-col gap-2">
+                        <label for="direct-outbound-list" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 出站映射</label>
+                        <textarea
+                          id="direct-outbound-list"
+                          bind:value={directOutboundList}
+                          disabled={boxConfigLoading}
+                          rows="2"
+                          class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm
+                          {r ? 'rounded-lg' : ''}"
+                          placeholder="CMCC_XXXX,DIRECT;TPLINK_XXXX,Proxy"
+                        ></textarea>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">格式：SSID,出站;SSID,出站</span>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {:else if controlMode === "mode"}
+                <div class="space-y-4">
+                  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="flex flex-col gap-2">
+                      <label for="default-clash-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝默认模式</label>
+                      <Select id="default-clash-mode" bind:value={defaultClashMode} options={clashModeTargetOptions} disabled={boxConfigLoading} />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <label for="direct-clash-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 默认模式</label>
+                      <Select id="direct-clash-mode" bind:value={directClashMode} options={clashModeTargetOptions} disabled={boxConfigLoading} />
+                    </div>
+                    <div class="flex flex-col gap-2">
+                      <label for="proxy-clash-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝覆盖模式</label>
+                      <Select id="proxy-clash-mode" bind:value={proxyClashMode} options={clashModeTargetOptions} disabled={boxConfigLoading} />
+                    </div>
+                  </div>
+
+                  {#if useCustomDirect}
+                    <div transition:slide={{ duration: 220, easing: cubicOut }} class="overflow-hidden">
+                      <div in:fly={{ y: -8, duration: 220, easing: cubicOut }} out:fly={{ y: -6, duration: 150, easing: cubicOut }} class="flex flex-col gap-2">
+                        <label for="direct-clash-mode-list" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 模式映射</label>
+                        <textarea
+                          id="direct-clash-mode-list"
+                          bind:value={directClashModeList}
+                          disabled={boxConfigLoading}
+                          rows="2"
+                          class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm
+                          {r ? 'rounded-lg' : ''}"
+                          placeholder="CMCC_XXXX,rule;TPLINK_XXXX,direct"
+                        ></textarea>
+                        <span class="text-xs text-slate-500 dark:text-slate-400">格式：SSID,rule/global/direct;SSID,rule/global/direct</span>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
 
         <div class="flex gap-3 pt-2">
           <button

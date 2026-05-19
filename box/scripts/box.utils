@@ -16,48 +16,39 @@ ssid() {
 }
 
 connected() {
-    if [ -z "$(cat /data/misc/net/rt_tables | grep wlan)" ]; then
-        return 1
-    fi
+    grep -q wlan /data/misc/net/rt_tables 2> /dev/null
 }
 
 api_request() {
     local method="$1"
     local path="$2"
     local data="$3"
+    local url="http://127.0.0.1:${clash_api_port}${path}"
+
+    set -- -s -X "${method}" "${url}"
 
     if [ -n "${clash_api_secret}" ]; then
-        if [ -n "${data}" ]; then
-            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}" \
-                -H "Authorization: Bearer ${clash_api_secret}" \
-                -H 'Content-Type: application/json' \
-                -d "${data}"
-        else
-            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}" \
-                -H "Authorization: Bearer ${clash_api_secret}"
-        fi
-    else
-        if [ -n "${data}" ]; then
-            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}" \
-                -H 'Content-Type: application/json' \
-                -d "${data}"
-        else
-            curl -s -X "${method}" "http://127.0.0.1:${clash_api_port}${path}"
-        fi
+        set -- "$@" -H "Authorization: Bearer ${clash_api_secret}"
     fi
+
+    if [ -n "${data}" ]; then
+        set -- "$@" -H 'Content-Type: application/json' -d "${data}"
+    fi
+
+    curl "$@"
 }
 
 status() {
-    curl -s "http://127.0.0.1:${clash_api_port}/configs" > /dev/null 2>&1
+    api_request GET "/configs" > /dev/null 2>&1
     return $?
 }
 
 stop_core() {
-    ${scripts_dir}/box.service stop >> /dev/null 2>> ${run_path}/run.log
+    "${scripts_dir}/box.service" stop >> /dev/null 2>> "${run_path}/run.log"
 }
 
 start_core() {
-    ${scripts_dir}/box.service start >> /dev/null 2>> ${run_path}/run.log
+    "${scripts_dir}/box.service" start >> /dev/null 2>> "${run_path}/run.log"
 }
 
 setOutbound() {
