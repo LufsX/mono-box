@@ -263,44 +263,41 @@
 </script>
 
 <main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-4">
-  <div class="flex items-center justify-between gap-3">
-    <div class="flex items-center gap-2 min-w-0">
-      <div class="flex font-bold text-sm shrink-0">
-        <button
-          class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 {r ? 'rounded-l-lg' : ''} {currentView === 'rules'
-            ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
-            : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
-          onclick={() => {
-            currentView = "rules";
-          }}
-        >
-          规则列表 {rules.length}
-        </button>
-        <button
-          class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px {r ? 'rounded-r-lg' : ''} {currentView === 'providers'
-            ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
-            : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
-          onclick={() => {
-            currentView = "providers";
-          }}
-        >
-          规则集合 {providerNames.length}
-        </button>
-      </div>
-
+  <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+    <div class="flex font-bold text-sm min-w-0 overflow-x-auto">
       <button
-        class="inline-flex items-center justify-center gap-2 px-3 py-1.5 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 text-sm font-bold {r
-          ? 'rounded-lg'
-          : ''}"
-        onclick={updateAllProviders}
-        hidden={currentView !== "providers"}
-        disabled={updatingAllProviders || providerNames.length === 0}
-        title="更新全部规则集合"
+        class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 {r ? 'rounded-l-lg' : ''} {currentView === 'rules'
+          ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
+          : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
+        onclick={() => {
+          currentView = "rules";
+        }}
       >
-        <RefreshCw size={14} class={updatingAllProviders ? "animate-spin" : ""} />
-        <span>更新全部</span>
+        规则列表 {rules.length}
+      </button>
+      <button
+        class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px {r ? 'rounded-r-lg' : ''} {currentView === 'providers'
+          ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
+          : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
+        onclick={() => {
+          currentView = "providers";
+        }}
+      >
+        规则集合 {providerNames.length}
       </button>
     </div>
+
+    <button
+      class="justify-self-end inline-flex items-center justify-center gap-2 px-3 py-1.5 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 text-sm font-bold whitespace-nowrap
+      {r ? 'rounded-lg' : ''}"
+      onclick={updateAllProviders}
+      hidden={currentView !== "providers"}
+      disabled={updatingAllProviders || providerNames.length === 0}
+      title="更新全部规则集合"
+    >
+      <RefreshCw size={14} class={updatingAllProviders ? "animate-spin" : ""} />
+      <span>更新全部</span>
+    </button>
   </div>
 
   <div class="flex justify-end">

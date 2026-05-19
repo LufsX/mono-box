@@ -72,19 +72,31 @@ export function clashPillTagClass(kind: "type" | "meta" | "status", value: strin
   return `${base} ${style.gray}`;
 }
 
-export function clashConnectionTagClass(kind: "network" | "type", value: string, rounded: boolean, size: "compact" | "normal" = "compact"): string {
+export function clashConnectionTagClass(kind: "network" | "type" | "rule" | "time" | "chain", value: string, rounded: boolean, size: "compact" | "normal" = "compact"): string {
   const lower = String(value || "").toLowerCase();
   const sizing = size === "normal" ? "px-2 py-1 text-xs" : "px-1.5 py-0.5 text-[10px]";
-  const base = `${sizing} ${rounded ? "rounded" : ""} font-semibold`;
+  const base = `inline-flex items-center min-w-0 border leading-none ${sizing} ${rounded ? "rounded-md" : ""} font-semibold`;
 
-  if (kind === "network") {
-    if (lower === "udp") return `${base} bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300`;
-    if (lower === "tcp") return `${base} bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300`;
-    return `${base} bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300`;
+  if (kind === "time") {
+    return `${base} font-mono uppercase whitespace-nowrap border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 text-slate-500 dark:text-zinc-400`;
   }
 
-  if (lower.includes("socks")) return `${base} bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300`;
-  if (lower.includes("http")) return `${base} bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300`;
-  if (lower.includes("tun")) return `${base} bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300`;
-  return `${base} bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300`;
+  if (kind === "chain") {
+    return `${base} font-mono border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 text-slate-700 dark:text-zinc-200`;
+  }
+
+  if (kind === "rule") {
+    return `${base} font-bold truncate border-blue-200 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300`;
+  }
+
+  if (kind === "network") {
+    if (lower === "udp") return `${base} uppercase border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300`;
+    if (lower === "tcp") return `${base} uppercase border-blue-200 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300`;
+    return `${base} uppercase border-slate-300 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300`;
+  }
+
+  if (lower.includes("socks")) return `${base} border-emerald-200 dark:border-emerald-900/40 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300`;
+  if (lower.includes("http")) return `${base} border-blue-200 dark:border-blue-900/40 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300`;
+  if (lower.includes("tun")) return `${base} border-purple-200 dark:border-purple-900/40 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300`;
+  return `${base} border-slate-300 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300`;
 }

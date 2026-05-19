@@ -82,7 +82,6 @@
     return `${h}h ${m2}m`;
   }
 
-
   function escapeHtml(input: string): string {
     return input.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
@@ -351,9 +350,7 @@
               <div class="font-mono text-sm font-bold text-slate-900 dark:text-slate-200 truncate" title={conn.metadata.host || conn.metadata.destinationIP}>
                 {conn.metadata.host || conn.metadata.destinationIP}
               </div>
-              <div
-                class="text-[10px] text-slate-400 dark:text-zinc-500 font-mono whitespace-nowrap pt-0.5 border border-slate-300 dark:border-zinc-700 px-1.5 py-0.5 uppercase {r ? 'rounded-md' : ''}"
-              >
+              <div class={clashConnectionTagClass("time", conn.start, r, "compact")}>
                 {formatDuration(conn.start)}
               </div>
             </div>
@@ -363,7 +360,7 @@
                 <span class={clashConnectionTagClass("network", conn.metadata.network, r, "compact")}>{conn.metadata.network.toUpperCase()}</span>
                 <span class={clashConnectionTagClass("type", conn.metadata.type, r, "compact")}>{conn.metadata.type}</span>
                 {#if conn.rule}
-                  <span class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 {r ? 'rounded' : ''} text-[10px] truncate">{conn.rule}</span>
+                  <span class={clashConnectionTagClass("rule", conn.rule, r, "compact")}>{conn.rule}</span>
                 {/if}
               </div>
 
@@ -381,7 +378,11 @@
             </div>
 
             <div class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center text-xs">
-              <div class="text-slate-500 dark:text-zinc-400 font-mono truncate" title={conn.chains?.join(" > ")}>{conn.chains?.[0] || "DIRECT"}</div>
+              <div class="min-w-0" title={conn.chains?.join(" > ")}>
+                <span class={`${clashConnectionTagClass("chain", conn.chains?.[0] || "DIRECT", r, "compact")} max-w-full`}>
+                  <span class="truncate">{conn.chains?.[0] || "DIRECT"}</span>
+                </span>
+              </div>
 
               <div class="flex items-center gap-2 shrink-0">
                 <span class="font-mono text-[10px] sm:text-xs whitespace-nowrap text-slate-700 dark:text-zinc-200 font-semibold leading-none">
@@ -447,9 +448,7 @@
               <span class={clashConnectionTagClass("network", activeConn.metadata.network, r, "normal")}>{activeConn.metadata.network.toUpperCase()}</span>
               <span class={clashConnectionTagClass("type", activeConn.metadata.type, r, "normal")}>{activeConn.metadata.type}</span>
               {#if activeConn.rule}
-                <span class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 {r ? 'rounded' : ''} text-xs font-semibold"
-                  >{activeConn.rule} {activeConn.rulePayload ? `(${activeConn.rulePayload})` : ""}</span
-                >
+                <span class={clashConnectionTagClass("rule", activeConn.rule, r, "normal")}>{activeConn.rule} {activeConn.rulePayload ? `(${activeConn.rulePayload})` : ""}</span>
               {/if}
             </div>
           </div>
@@ -461,10 +460,7 @@
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
                   {#each activeConn.chains as chain, i (i)}
                     <div class="flex items-center gap-2">
-                      <span
-                        class="inline-flex items-center gap-2 px-2 py-1 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 text-xs font-mono text-slate-700 dark:text-zinc-200
-                        {r ? 'rounded-lg' : ''}"
-                      >
+                      <span class={`${clashConnectionTagClass("chain", chain, r, "normal")} gap-2`}>
                         <span class="text-slate-400 dark:text-zinc-500">{(i + 1).toString().padStart(2, "0")}</span>
                         <span class="break-all">{chain}</span>
                       </span>
@@ -527,7 +523,7 @@
             </button>
             {#if rawOpen}
               <div transition:slide={{ duration: 160, easing: cubicOut }}>
-                <pre class="mt-2 max-h-72 overflow-auto whitespace-pre font-mono text-[10px] text-slate-700 dark:text-zinc-200">{@html highlightJson(activeConn)}</pre>
+                <pre class="mt-2 overflow-auto whitespace-pre font-mono text-[10px] text-slate-700 dark:text-zinc-200">{@html highlightJson(activeConn)}</pre>
               </div>
             {/if}
           </div>
