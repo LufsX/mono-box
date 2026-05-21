@@ -26,13 +26,11 @@ jobs:
         id: meta
         run: |
           VERSION="$(awk -F '=' '/^version=/{print $2}' module.prop)"
-          VERSION_CODE="$(awk -F '=' '/^versionCode=/{print $2}' module.prop)"
           ZIP_NAME="MonoBox_${VERSION}.zip"
-          ZIP_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/Prerelease/${ZIP_NAME}"
-          CHANGELOG_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/Prerelease/prerelease-changelog.md"
+          ZIP_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/Prerelease/${ZIP_NAME}"
+          CHANGELOG_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/Prerelease/prerelease-changelog.md"
           {
             echo "version=${VERSION}"
-            echo "version_code=${VERSION_CODE}"
             echo "zip_name=${ZIP_NAME}"
             echo "zip_url=${ZIP_URL}"
             echo "changelog_url=${CHANGELOG_URL}"
@@ -45,7 +43,8 @@ jobs:
           package_json_file: webui/package.json
 
       - name: Run build.sh
-        run: sh build.sh
+        id: build
+        run: sh build.sh --prerelease
 
       - name: Check zip file exists
         run: |
@@ -62,7 +61,7 @@ jobs:
             echo
             echo "Auto-generated from latest commits."
             echo
-            git log -n 15 --pretty=format:'- %s (%h)'
+            git log -n 10 --pretty=format:'- %s (%h)'
             echo
           } > prerelease-changelog.md
 
@@ -70,7 +69,7 @@ jobs:
         run: |
           jq -n \
             --arg version "${{ steps.meta.outputs.version }}" \
-            --argjson versionCode "${{ steps.meta.outputs.version_code }}" \
+            --argjson versionCode "${{ steps.build.outputs.version_code }}" \
             --arg zipUrl "${{ steps.meta.outputs.zip_url }}" \
             --arg changelog "${{ steps.meta.outputs.changelog_url }}" \
             '{

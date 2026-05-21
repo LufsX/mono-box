@@ -22,8 +22,6 @@ jobs:
         id: meta
         run: |
           VERSION="$(awk -F '=' '/^version=/{print $2}' module.prop)"
-          VERSION_CODE="$(awk -F '=' '/^versionCode=/{print $2}' module.prop)"
-          UPDATE_JSON_URL="$(awk -F '=' '/^updateJson=/{print $2}' module.prop)"
           TAG_NAME="${GITHUB_REF_NAME}"
 
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
@@ -40,21 +38,12 @@ jobs:
             exit 1
           fi
 
-          EXPECTED_UPDATE_JSON_URL="https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json"
-          if [ "${UPDATE_JSON_URL}" != "${EXPECTED_UPDATE_JSON_URL}" ]; then
-            echo "module.prop updateJson is invalid"
-            echo "current: ${UPDATE_JSON_URL}"
-            echo "expected: ${EXPECTED_UPDATE_JSON_URL}"
-            exit 1
-          fi
-
           ZIP_NAME="MonoBox_${VERSION}.zip"
           ZIP_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${ZIP_NAME}"
           CHANGELOG_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/changelog.md"
 
           {
             echo "version=${VERSION}"
-            echo "version_code=${VERSION_CODE}"
             echo "tag_name=${TAG_NAME}"
             echo "zip_name=${ZIP_NAME}"
             echo "zip_url=${ZIP_URL}"
@@ -68,6 +57,7 @@ jobs:
           package_json_file: webui/package.json
 
       - name: Run build.sh
+        id: build
         run: sh build.sh
 
       - name: Check zip file exists
@@ -104,7 +94,7 @@ jobs:
         run: |
           jq -n \
             --arg version "${{ steps.meta.outputs.version }}" \
-            --argjson versionCode "${{ steps.meta.outputs.version_code }}" \
+            --argjson versionCode "${{ steps.build.outputs.version_code }}" \
             --arg zipUrl "${{ steps.meta.outputs.zip_url }}" \
             --arg changelog "${{ steps.meta.outputs.changelog_url }}" \
             '{
