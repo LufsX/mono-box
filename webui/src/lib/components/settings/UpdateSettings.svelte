@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { Download, RefreshCw, ChevronRight } from "@lucide/svelte";
+  import { Download, RefreshCw } from "@lucide/svelte";
   import Select from "$lib/components/Select.svelte";
   import { roundedStore } from "$lib/settings";
 
-  type UpdateSource = "current" | "release" | "nightly";
+  type UpdateSource = "release" | "nightly";
   type UpdateStatus = "idle" | "checking" | "ok" | "error";
 
   interface UpdateInfo {
@@ -14,10 +14,10 @@
     changelog?: string;
   }
 
-  let { currentVersion, currentVersionCode, currentUpdateJson, onopen } = $props<{
+  let { currentVersion, currentVersionCode, releaseUpdateJson, onopen } = $props<{
     currentVersion: string;
     currentVersionCode: string;
-    currentUpdateJson: string;
+    releaseUpdateJson: string;
     onopen: (url: string) => void | Promise<void>;
   }>();
 
@@ -26,18 +26,17 @@
   const NIGHTLY_UPDATE_JSON = "https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/download/Prerelease/update.json";
   const FALLBACK_RELEASE_UPDATE_JSON = "https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json";
 
-  let updateSource = $state<UpdateSource>("current");
+  let updateSource = $state<UpdateSource>("release");
   let updateStatus = $state<UpdateStatus>("idle");
   let updateError = $state("");
   let updateInfo = $state<UpdateInfo | null>(null);
 
   const updateSourceOptions = [
-    { value: "current", label: "当前通道" },
     { value: "release", label: "正式版" },
     { value: "nightly", label: "每夜版" },
   ];
 
-  const sourceUrl = $derived(updateSource === "nightly" ? NIGHTLY_UPDATE_JSON : updateSource === "release" ? FALLBACK_RELEASE_UPDATE_JSON : currentUpdateJson || FALLBACK_RELEASE_UPDATE_JSON);
+  const sourceUrl = $derived(updateSource === "nightly" ? NIGHTLY_UPDATE_JSON : releaseUpdateJson || FALLBACK_RELEASE_UPDATE_JSON);
   const currentCode = $derived(Number.parseInt(currentVersionCode || "0", 10) || 0);
   const hasUpdate = $derived(updateInfo ? updateInfo.versionCode > currentCode : false);
   const actionIsDownload = $derived(updateStatus === "ok" && hasUpdate && !!updateInfo?.zipUrl);
@@ -46,7 +45,7 @@
     if (updateStatus === "checking") return "正在检查更新";
     if (updateStatus === "error") return updateError || "检查更新失败";
     if (updateStatus === "ok" && updateInfo) {
-      if (hasUpdate) return `发现可用更新 ${updateInfo.version}(${updateInfo.versionCode})`;
+      if (hasUpdate) return `发现可用更新 (${updateInfo.versionCode})`;
       return `当前已是最新 (${currentVersionCode || "-"})`;
     }
 
@@ -56,7 +55,7 @@
   onMount(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === "current" || saved === "release" || saved === "nightly") {
+      if (saved === "release" || saved === "nightly") {
         updateSource = saved;
       }
     } catch {
@@ -65,7 +64,7 @@
   });
 
   function saveUpdateSource(value: string) {
-    updateSource = value === "nightly" ? "nightly" : value === "release" ? "release" : "current";
+    updateSource = value === "nightly" ? "nightly" : "release";
     updateStatus = "idle";
     updateInfo = null;
     updateError = "";
@@ -156,7 +155,7 @@
           <span class="truncate">下载更新</span>
         {:else}
           <RefreshCw size={14} class="shrink-0 {updateStatus === 'checking' ? 'animate-spin' : ''}" />
-          <span class="truncate">{updateStatus === "checking" ? "正在检查" : "检查更新"}</span>
+          <span class="truncate">{updateStatus === "checking" ? "检查中" : "检查更新"}</span>
         {/if}
       </div>
     </button>
@@ -170,17 +169,7 @@
       <Select id="update-source" bind:value={updateSource} options={updateSourceOptions} onchange={saveUpdateSource} />
     </div>
     <span class="text-xs text-slate-500 dark:text-slate-400">
-      {updateSource === "current" ? "使用现有已安装模块的通道" : updateSource === "release" ? "获取最新的正式版本" : "获取自动构建的最新版本"}
+      {updateSource === "release" ? "获取最新的正式版本发布代码，更稳定" : "获取每次提交代码后自动构建的最新版本，可能有未知的问题"}
     </span>
   </div>
-
-  <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>
-
-  <button type="button" class="w-full flex items-center justify-between gap-3 text-left group outline-none" onclick={() => onopen("https://github.com/LufsX/mono-box")}>
-    <div class="space-y-1">
-      <p class="font-bold text-slate-900 dark:text-slate-200 text-sm group-hover:text-slate-700 dark:group-hover:text-slate-100 transition-colors">项目主页</p>
-      <p class="text-xs text-slate-500 dark:text-slate-400">基于 Mihomo 核心的代理工具，在 GitHub 上查看源码或提交问题</p>
-    </div>
-    <ChevronRight size={18} class="text-slate-400 dark:text-zinc-500 shrink-0 group-hover:translate-x-0.5 transition-transform" aria-hidden="true" />
-  </button>
 </div>

@@ -50,6 +50,7 @@
 
   let currentVersion = $state("-");
   let currentVersionCode = $state("");
+  let currentUpdateJson = $state("");
   let saveResetTimer: ReturnType<typeof setTimeout> | undefined;
   let homeLayout = $state(loadHomeLayoutSettings());
   let homeLayoutSaved = $state(false);
@@ -233,10 +234,12 @@
       const info = await actionApi.getModuleInfo();
       currentVersion = info.version || "-";
       currentVersionCode = info.versionCode || "";
+      currentUpdateJson = info.updateJson || "";
     } catch (e) {
       console.error("Failed to load module info:", e);
       currentVersion = "-";
       currentVersionCode = "";
+      currentUpdateJson = "";
     }
   }
 
@@ -305,18 +308,10 @@
   </CollapsibleSection>
 
   <CollapsibleSection title="WEB UI 设置" controls="web-ui-settings" delay={50} bind:open={webUiSettingsOpen} onchange={(open) => saveSettingsSectionState({ webUi: open })}>
-    <WebUiSettings
-      bind:homeLayout
-      {homeLayoutError}
-      {homeLayoutSaved}
-      {homeLayoutReseted}
-      defaultPanelUrl={getDefaultPanelUrl()}
-      onsave={saveHomeLayout}
-      onreset={resetHomeLayoutToDefault}
-    />
+    <WebUiSettings bind:homeLayout {homeLayoutError} {homeLayoutSaved} {homeLayoutReseted} defaultPanelUrl={getDefaultPanelUrl()} onsave={saveHomeLayout} onreset={resetHomeLayoutToDefault} />
   </CollapsibleSection>
 
   <CollapsibleSection title="关于" controls="about-settings" delay={80} bind:open={aboutOpen} onchange={(open) => saveSettingsSectionState({ about: open })}>
-    <AboutSettings {currentVersion} {currentVersionCode} onopen={openSupportLink} />
+    <AboutSettings {currentVersion} {currentVersionCode} {currentUpdateJson} onopen={openSupportLink} />
   </CollapsibleSection>
 </div>

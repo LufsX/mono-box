@@ -295,7 +295,7 @@
               <ExternalLink size={16} />
               打开内核面板
             </button>
-            <div class="mt-2 text-xs text-slate-500 dark:text-slate-400 break-all">{getPanelUrl()}</div>
+            <!-- <div class="mt-2 text-xs text-slate-500 dark:text-slate-400 break-all">{getPanelUrl()}</div> -->
           </div>
         </section>
       {:else if moduleId === "core"}
