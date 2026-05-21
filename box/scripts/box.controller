@@ -8,8 +8,15 @@ module_dir="/data/adb/modules/mono_box"
 scripts=$(realpath "$0")
 scripts_dir=$(dirname "${scripts}")
 
-source "${scripts_dir}/box.config"
-source "${scripts_dir}/box.utils"
+. "${scripts_dir}/box.config"
+
+bin_name="${bin_name:-mihomo}"
+box_path="${box_path:-/data/adb/box}"
+run_path="${run_path:-${box_path}/run}"
+pid_file="${pid_file:-${run_path}/${bin_name}.pid}"
+clash_api_port="${clash_api_port:-9090}"
+
+. "${scripts_dir}/box.utils"
 
 service_path="${scripts_dir}/box.service"
 run_log="${run_path}/run.log"
@@ -101,71 +108,54 @@ get_network_state() {
     return 0
 }
 
-choose_cellular_target() {
-    local override="$1"
-    local last_value="$2"
-    local default_value="$3"
-
-    if [ -n "${override}" ]; then
-        printf '%s' "${override}"
-    elif [ -n "${last_value}" ]; then
-        printf '%s' "${last_value}"
-    else
-        printf '%s' "${default_value}"
-    fi
-}
-
-choose_wifi_target() {
-    local default_value="$1"
-    local mapping="$2"
-    local ssid_name
+choose_target() {
+    local network_state="$1"
     local mapped
+    local ssid_name
 
-    if [ "${use_custom_direct}" = "true" ]; then
+    if [ "${network_state}" = "cellular" ]; then
+        printf '%s' "${target_cellular}"
+        return 0
+    fi
+
+    if [ -n "${target_wifi_list}" ]; then
         ssid_name=$(ssid)
-        mapped=$(getTarget "${mapping}" "${ssid_name}")
+        mapped=$(getTarget "${target_wifi_list}" "${ssid_name}")
         if [ -n "${mapped}" ]; then
             printf '%s' "${mapped}"
             return 0
         fi
     fi
 
-    printf '%s' "${default_value}"
+    printf '%s' "${target_wifi}"
+    return 0
 }
 
 choose_selector_target() {
     local network_state="$1"
+    local target
 
-    if [ "${network_state}" = "cellular" ]; then
-        choose_cellular_target "${proxy_outbound}" "${Outbound}" "${default_outbound}"
+    target=$(choose_target "${network_state}")
+    if [ "${network_state}" = "cellular" ] && [ "${target}" = "last" ]; then
+        printf '%s' "${Outbound}"
         return 0
     fi
 
-    choose_wifi_target "${direct_outbound}" "${direct_outbound_list}"
-    return 0
-}
-
-choose_tun_target() {
-    local network_state="$1"
-
-    if [ "${network_state}" = "cellular" ]; then
-        choose_cellular_target "${proxy_tun_enable}" "" "${default_tun_enable}"
-        return 0
-    fi
-
-    choose_wifi_target "${direct_tun_enable}" "${direct_tun_enable_list}"
+    printf '%s' "${target}"
     return 0
 }
 
 choose_clash_mode_target() {
     local network_state="$1"
+    local target
 
-    if [ "${network_state}" = "cellular" ]; then
-        choose_cellular_target "${proxy_clash_mode}" "${ClashMode}" "${default_clash_mode}"
+    target=$(choose_target "${network_state}")
+    if [ "${network_state}" = "cellular" ] && [ "${target}" = "last" ]; then
+        printf '%s' "${ClashMode}"
         return 0
     fi
 
-    choose_wifi_target "${direct_clash_mode}" "${direct_clash_mode_list}"
+    printf '%s' "${target}"
     return 0
 }
 
@@ -175,12 +165,19 @@ is_bool_target() {
 
 apply_switch_policy() {
     local network_state="$1"
+    local target
 
-    if [ "${network_state}" = "cellular" ]; then
-        status || start_core
-    else
-        status && stop_core
-    fi
+    target=$(choose_target "${network_state}")
+
+    case "${target}" in
+        start | on | true)
+            status || start_core
+            ;;
+        stop | off | false)
+            status && stop_core
+            ;;
+        *) ;;
+    esac
 }
 
 apply_tun_policy() {
@@ -188,7 +185,7 @@ apply_tun_policy() {
     local target
 
     status || return 0
-    target=$(choose_tun_target "${network_state}")
+    target=$(choose_target "${network_state}")
     is_bool_target "${target}" || return 0
 
     setTun "${target}" > /dev/null 2>&1

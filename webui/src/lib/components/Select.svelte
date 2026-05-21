@@ -10,11 +10,13 @@
     options = [],
     value = $bindable(),
     disabled = false,
+    onchange,
   } = $props<{
     id?: string;
     options: { value: string; label: string }[];
     value: string;
     disabled?: boolean;
+    onchange?: (value: string) => void;
   }>();
 
   let open = $state(false);
@@ -41,6 +43,7 @@
   function selectOption(v: string) {
     value = v;
     open = false;
+    onchange?.(v);
   }
 
   let selectedLabel = $derived(options.find((o: { value: string; label: string }) => o.value === value)?.label || value);

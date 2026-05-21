@@ -71,21 +71,11 @@ export interface BoxConfigValues {
   toggleAction: "service" | "tun" | "mode_cycle";
   toggleTunTarget: "toggle" | "on" | "off";
   toggleModeCycle: ProxyMode[];
-  useCustomDirect: boolean;
   controlMode: ControlMode;
-  defaultTunEnable: string;
-  directTunEnable: string;
-  proxyTunEnable: string;
-  directTunEnableList: string;
   selectOutbound: string;
-  defaultOutbound: string;
-  directOutbound: string;
-  proxyOutbound: string;
-  directOutboundList: string;
-  defaultClashMode: string;
-  directClashMode: string;
-  proxyClashMode: string;
-  directClashModeList: string;
+  targetCellular: string;
+  targetWifi: string;
+  targetWifiList: string;
 }
 
 export interface ClashVersionResponse {
@@ -166,6 +156,7 @@ function parseBoxConfigContent(content: string): BoxConfigValues {
   if (!toggleModeCycle.length) {
     toggleModeCycle.push("rule", "global", "direct");
   }
+  const controlMode = normalizeControlMode(readConfigValue(content, "ctr_mode", "disable"));
 
   return {
     clashApiPort: portMatch ? parseInt(portMatch[1], 10) : 9090,
@@ -173,21 +164,11 @@ function parseBoxConfigContent(content: string): BoxConfigValues {
     toggleAction,
     toggleTunTarget,
     toggleModeCycle,
-    useCustomDirect: readConfigValue(content, "use_custom_direct", "false") === "true",
-    controlMode: normalizeControlMode(readConfigValue(content, "ctr_mode", "disable")),
-    defaultTunEnable: readConfigValue(content, "default_tun_enable", "true"),
-    directTunEnable: readConfigValue(content, "direct_tun_enable", "false"),
-    proxyTunEnable: readConfigValue(content, "proxy_tun_enable"),
-    directTunEnableList: readConfigValue(content, "direct_tun_enable_list"),
+    controlMode,
     selectOutbound: readConfigValue(content, "select_outbound"),
-    defaultOutbound: readConfigValue(content, "default_outbound"),
-    directOutbound: readConfigValue(content, "direct_outbound"),
-    proxyOutbound: readConfigValue(content, "proxy_outbound"),
-    directOutboundList: readConfigValue(content, "direct_outbound_list"),
-    defaultClashMode: readConfigValue(content, "default_clash_mode"),
-    directClashMode: readConfigValue(content, "direct_clash_mode"),
-    proxyClashMode: readConfigValue(content, "proxy_clash_mode"),
-    directClashModeList: readConfigValue(content, "direct_clash_mode_list"),
+    targetCellular: readConfigValue(content, "target_cellular"),
+    targetWifi: readConfigValue(content, "target_wifi"),
+    targetWifiList: readConfigValue(content, "target_wifi_list"),
   };
 }
 

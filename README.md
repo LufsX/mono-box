@@ -88,13 +88,14 @@ Important fields:
 - bin_name: core name, recommended Mihomo or Mihomo Smart
 - CORE_USER_GROUP: user:group for launching core process
 - clash_api_port, clash_api_secret: Clash API access
-- ctr_mode: disable | switch | selector | mode
-- select_outbound / default_outbound / direct_outbound
-- default_clash_mode / direct_clash_mode
+- toggle_action: service | tun | mode_cycle
+- ctr_mode: disable | switch | tun | selector | mode
+- select_outbound: selector group name for ctr_mode=selector
+- target_cellular / target_wifi / target_wifi_list: generic targets for switch, tun, selector, and mode policies
 
 Notes:
 
-- switch/selector/mode rely on Clash API exposed by your running core config.
+- tun/selector/mode rely on Clash API exposed by your running core config.
 - If Clash API is disabled in core config, policy linkage features will not work.
 
 ## Usage

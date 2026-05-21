@@ -10,7 +10,20 @@ const MOCK_MODULE_PROP = [
   "updateJson=https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json",
 ].join("\n");
 
-let mockBoxConfig = "clash_api_port=9090\nclash_api_secret=\n";
+let mockBoxConfig = [
+  'bin_name="mihomo"',
+  'CORE_USER_GROUP="root:net_admin"',
+  "clash_api_port=9090",
+  "clash_api_secret=",
+  'toggle_action="service"',
+  'toggle_tun_target="toggle"',
+  'toggle_mode_cycle="rule,global,direct"',
+  "ctr_mode=disable",
+  'select_outbound=""',
+  'target_cellular=""',
+  'target_wifi=""',
+  'target_wifi_list=""',
+].join("\n");
 
 function ok(stdout = "", stderr = ""): CommandResult {
   return {

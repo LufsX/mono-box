@@ -5,7 +5,14 @@ export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH:/data/dat
 scripts=$(realpath "$0")
 scripts_dir=$(dirname "${scripts}")
 
-source "${scripts_dir}/box.config"
+. "${scripts_dir}/box.config"
+
+bin_name="${bin_name:-mihomo}"
+CORE_USER_GROUP="${CORE_USER_GROUP:-root:net_admin}"
+box_path="${box_path:-/data/adb/box}"
+bin_path="${bin_path:-${box_path}/bin/${bin_name}}"
+run_path="${run_path:-${box_path}/run}"
+pid_file="${pid_file:-${run_path}/${bin_name}.pid}"
 
 mkdir -p "${run_path}" "${box_path}/${bin_name}"
 

@@ -86,13 +86,14 @@ Mono Box 提供一个 WEB UI 管理面板，功能包括：
 - bin_name：核心名称，仅建议 Mihomo 或 Mihomo Smart
 - CORE_USER_GROUP：核心运行用户组
 - clash_api_port、clash_api_secret：Clash API 访问
-- ctr_mode：disable | switch | selector | mode
-- select_outbound / default_outbound / direct_outbound
-- default_clash_mode / direct_clash_mode
+- toggle_action：service | tun | mode_cycle
+- ctr_mode：disable | switch | tun | selector | mode
+- select_outbound：ctr_mode=selector 时的策略组名称
+- target_cellular / target_wifi / target_wifi_list：switch、tun、selector、mode 共用的蜂窝/Wi-Fi/SSID 目标
 
 说明：
 
-- switch/selector/mode 联动依赖核心配置中已启用 Clash API。
+- tun/selector/mode 联动依赖核心配置中已启用 Clash API。
 - 若 Clash API 未启用，则这些联动功能不会生效。
 
 ## 使用方式

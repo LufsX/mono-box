@@ -23,6 +23,7 @@ api_request() {
     local method="$1"
     local path="$2"
     local data="$3"
+    local clash_api_port="${clash_api_port:-9090}"
     local url="http://127.0.0.1:${clash_api_port}${path}"
 
     set -- -s -X "${method}" "${url}"

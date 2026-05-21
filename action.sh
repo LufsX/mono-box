@@ -15,14 +15,24 @@ ensure_service() {
     fi
 }
 
+load_runtime() {
+    if [ ! -f "${config_path}" ] || [ ! -f "${utils_path}" ]; then
+        echo "Scripts not found"
+        exit 1
+    fi
+
+    . "${config_path}"
+    clash_api_port="${clash_api_port:-9090}"
+    . "${utils_path}"
+}
+
 run_toggle() {
     local toggle_action="service"
     local toggle_tun_target="toggle"
     local toggle_mode_cycle="rule,global,direct"
 
     if [ -f "$config_path" ] && [ -f "$utils_path" ]; then
-        . "$config_path"
-        . "$utils_path"
+        load_runtime
 
         [ -n "$toggle_action" ] || toggle_action="service"
         [ -n "$toggle_tun_target" ] || toggle_tun_target="toggle"
@@ -129,52 +139,28 @@ run_toggle() {
 
 switch_mode() {
     local mode=$1
-    if [ -f "$config_path" ] && [ -f "$utils_path" ]; then
-        . "$config_path"
-        . "$utils_path"
-        setMode "$mode"
-        echo "Mode switched to $mode"
-    else
-        echo "Scripts not found"
-        exit 1
-    fi
+    load_runtime
+    setMode "$mode"
+    echo "Mode switched to $mode"
 }
 
 switch_tun() {
     local enable=$1
-    if [ -f "$config_path" ] && [ -f "$utils_path" ]; then
-        . "$config_path"
-        . "$utils_path"
-        setTun "$enable"
-        echo "TUN mode switched to $enable"
-    else
-        echo "Scripts not found"
-        exit 1
-    fi
+    load_runtime
+    setTun "$enable"
+    echo "TUN mode switched to $enable"
 }
 
 get_configs() {
-    if [ -f "$config_path" ] && [ -f "$utils_path" ]; then
-        . "$config_path"
-        . "$utils_path"
-        getConfigs
-    else
-        echo "Scripts not found"
-        exit 1
-    fi
+    load_runtime
+    getConfigs
 }
 
 upgrade_core() {
-    if [ -f "$config_path" ] && [ -f "$utils_path" ]; then
-        . "$config_path"
-        . "$utils_path"
-        echo "Upgrading core..."
-        upgradeResult=$(upgradeCore)
-        echo "$upgradeResult"
-    else
-        echo "Scripts not found"
-        exit 1
-    fi
+    load_runtime
+    echo "Upgrading core..."
+    upgradeResult=$(upgradeCore)
+    echo "$upgradeResult"
 }
 
 case "$1" in
