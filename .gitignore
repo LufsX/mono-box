@@ -29,5 +29,7 @@ vite.config.ts.timestamp-*
 # Editor
 .vscode
 .omc
+.agents
+.claude
 AGENTS.md
 CLAUDE.md

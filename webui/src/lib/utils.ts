@@ -11,8 +11,8 @@ export function formatBytes(value: number): string {
 }
 
 // Used by Rules rule/provider tags.
-export function clashPillTagClass(kind: "type" | "meta" | "status", value: string, rounded: boolean): string {
-  const base = `text-[9px] px-1.5 py-0.5 border uppercase font-semibold ${rounded ? "rounded-md" : ""}`;
+export function clashPillTagClass(kind: "type" | "meta" | "status", value: string): string {
+  const base = `text-[9px] px-1.5 py-0.5 border uppercase font-semibold rounded-md`;
 
   const style = {
     status: "border-red-300 dark:border-red-900/40 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300",
@@ -72,10 +72,10 @@ export function clashPillTagClass(kind: "type" | "meta" | "status", value: strin
   return `${base} ${style.gray}`;
 }
 
-export function clashConnectionTagClass(kind: "network" | "type" | "rule" | "time" | "chain", value: string, rounded: boolean, size: "compact" | "normal" = "compact"): string {
+export function clashConnectionTagClass(kind: "network" | "type" | "rule" | "time" | "chain", value: string, rounded?: boolean, size: "compact" | "normal" = "compact"): string {
   const lower = String(value || "").toLowerCase();
   const sizing = size === "normal" ? "px-2 py-1 text-xs" : "px-1.5 py-0.5 text-[10px]";
-  const base = `inline-flex items-center min-w-0 border leading-none ${sizing} ${rounded ? "rounded-md" : ""} font-semibold`;
+  const base = `inline-flex items-center min-w-0 border leading-none ${sizing} rounded-md font-semibold`;
 
   if (kind === "time") {
     return `${base} font-mono uppercase whitespace-nowrap border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 text-slate-500 dark:text-zinc-400`;

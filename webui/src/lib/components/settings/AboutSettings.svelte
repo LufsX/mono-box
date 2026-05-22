@@ -1,8 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { Download, RefreshCw, ChevronRight } from "@lucide/svelte";
-  import Select from "$lib/components/Select.svelte";
-  import { roundedStore } from "$lib/settings";
+  import Select from "$lib/components/common/Select.svelte";
 
   type UpdateSource = "current" | "release" | "nightly";
   type UpdateStatus = "idle" | "checking" | "ok" | "error";
@@ -21,7 +20,6 @@
     onopen: (url: string) => void | Promise<void>;
   }>();
 
-  const r = $derived($roundedStore);
   const STORAGE_KEY = "mono-box.update-source";
   const NIGHTLY_UPDATE_JSON = "https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/download/Prerelease/update.json";
   const FALLBACK_RELEASE_UPDATE_JSON = "https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json";
@@ -41,7 +39,7 @@
   const currentCode = $derived(Number.parseInt(currentVersionCode || "0", 10) || 0);
   const hasUpdate = $derived(updateInfo ? updateInfo.versionCode > currentCode : false);
   const actionIsDownload = $derived(updateStatus === "ok" && hasUpdate && !!updateInfo?.zipUrl);
-  const displayVersion = $derived(actionIsDownload && updateInfo ? updateInfo.version : currentVersion || "-");
+  const displayVersion = $derived(currentVersion || "-");
   const displayMeta = $derived.by(() => {
     if (updateStatus === "checking") return "正在检查更新";
     if (updateStatus === "error") return updateError || "检查更新失败";
@@ -148,7 +146,7 @@
       disabled={updateStatus === "checking"}
       class="group relative overflow-hidden shrink-0 whitespace-nowrap min-w-24 border px-3 py-2 text-sm font-bold transition-all duration-300 outline-none disabled:opacity-70 text-center {actionIsDownload
         ? 'border-emerald-700 dark:border-emerald-400 bg-emerald-700 dark:bg-emerald-300 text-white dark:text-zinc-900 shadow-sm'
-        : 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 hover:bg-slate-700 dark:hover:bg-slate-300 shadow-sm'} {r ? 'rounded-lg' : ''}"
+        : 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 hover:bg-slate-700 dark:hover:bg-slate-300 shadow-sm'} rounded-lg"
     >
       <div class="flex items-center justify-center gap-1.5 min-w-0">
         {#if actionIsDownload}

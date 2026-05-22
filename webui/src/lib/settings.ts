@@ -170,11 +170,22 @@ export function saveHomeLayoutSettings(settings: HomeLayoutSettings): void {
 
   const normalized = normalizeHomeLayoutSettings(settings);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+  roundedStore.set(normalized.rounded);
   bottomTabOrderStore.set([...normalized.bottomTabOrder]);
   bottomTabHiddenStore.set([...normalized.bottomTabHidden]);
 }
 
 export const roundedStore = writable(false);
+
+roundedStore.subscribe((value) => {
+  if (typeof document !== "undefined") {
+    if (value) {
+      document.documentElement.setAttribute("data-rounded", "");
+    } else {
+      document.documentElement.removeAttribute("data-rounded");
+    }
+  }
+});
 export const bottomTabOrderStore = writable<BottomTabId[]>([...ALL_BOTTOM_TABS]);
 export const bottomTabHiddenStore = writable<BottomTabId[]>(["rules"]);
 

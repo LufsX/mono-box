@@ -3,7 +3,6 @@
   import { ChevronDown, Check } from "@lucide/svelte";
   import { fade, fly } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
-  import { roundedStore } from "$lib/settings";
 
   let {
     id = "",
@@ -21,8 +20,6 @@
 
   let open = $state(false);
   let containerRef: HTMLDivElement | undefined = $state();
-
-  const r = $derived($roundedStore);
 
   function handleWindowClick(e: MouseEvent) {
     if (open && containerRef && !containerRef.contains(e.target as Node)) {
@@ -56,7 +53,7 @@
     {disabled}
     onclick={() => (open = !open)}
     class="w-full flex items-center justify-between px-3 py-1.5 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed
-    {r ? 'rounded-lg' : ''}"
+    rounded-lg"
   >
     <span class="truncate text-sm">{selectedLabel}</span>
     <ChevronDown size={16} class="text-slate-500 transition-transform duration-200 {open ? 'rotate-180' : ''}" />
@@ -66,7 +63,7 @@
     <div
       in:fly={{ y: -5, duration: 150, easing: cubicOut }}
       out:fade={{ duration: 100 }}
-      class="absolute left-0 right-0 top-[calc(100%+4px)] z-50 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl {r ? 'rounded-lg overflow-hidden' : ''}"
+      class="absolute left-0 right-0 top-[calc(100%+4px)] z-50 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl rounded-lg overflow-hidden"
     >
       <div class="max-h-60 overflow-y-auto flex flex-col">
         {#each options as option (option.value)}

@@ -3,9 +3,8 @@
   import { cubicOut } from "svelte/easing";
   import { fly, slide } from "svelte/transition";
   import { ArrowDown, ArrowUp, Check, Eye, EyeOff, RefreshCw, Save, X } from "@lucide/svelte";
-  import CheckBox from "$lib/components/CheckBox.svelte";
-  import Select from "$lib/components/Select.svelte";
-  import { roundedStore } from "$lib/settings";
+  import CheckBox from "$lib/components/common/CheckBox.svelte";
+  import Select from "$lib/components/common/Select.svelte";
 
   type ProxyMode = "rule" | "global" | "direct";
   type ControlMode = "disable" | "switch" | "tun" | "selector" | "mode";
@@ -53,7 +52,6 @@
   }>();
 
   const ALL_PROXY_MODES: ProxyMode[] = ["rule", "global", "direct"];
-  const r = $derived($roundedStore);
   const typedToggleModeOrder = $derived(toggleModeOrder as ProxyMode[]);
   const typedToggleModeCycle = $derived(toggleModeCycle as ProxyMode[]);
   let boxConfigSecretVisible = $state(false);
@@ -187,9 +185,7 @@
         type="number"
         bind:value={boxConfigPort}
         disabled={boxConfigLoading}
-        class="min-w-0 px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 {r
-          ? 'rounded-lg'
-          : ''}"
+        class="min-w-0 px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
         placeholder="9090"
       />
 
@@ -202,26 +198,42 @@
           ? 'border-emerald-700 dark:border-emerald-400 bg-emerald-700 dark:bg-emerald-300 text-white dark:text-zinc-900'
           : clashApiCheckOk === false
             ? 'border-rose-700 dark:border-rose-400 bg-rose-700 dark:bg-rose-300 text-white dark:text-zinc-900'
-            : 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 hover:bg-slate-700 dark:hover:bg-slate-300'} {r ? 'rounded-lg' : ''}"
+            : 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 hover:bg-slate-700 dark:hover:bg-slate-300'} rounded-lg"
       >
         <div class="grid place-items-center">
           {#if clashApiChecking}
-            <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0">
+            <span
+              in:fly={{ y: 20, duration: 300, easing: cubicOut }}
+              out:fly={{ y: -20, duration: 200 }}
+              class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0"
+            >
               <RefreshCw size={14} class="animate-spin" />
               <span class="truncate">正在检测</span>
             </span>
           {:else if clashApiCheckOk === true}
-            <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0">
+            <span
+              in:fly={{ y: 20, duration: 300, easing: cubicOut }}
+              out:fly={{ y: -20, duration: 200 }}
+              class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0"
+            >
               <Check size={14} />
               <span class="truncate">连接成功</span>
             </span>
           {:else if clashApiCheckOk === false}
-            <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0">
+            <span
+              in:fly={{ y: 20, duration: 300, easing: cubicOut }}
+              out:fly={{ y: -20, duration: 200 }}
+              class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0"
+            >
               <X size={14} />
               <span class="truncate">连接失败</span>
             </span>
           {:else}
-            <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0">
+            <span
+              in:fly={{ y: 20, duration: 300, easing: cubicOut }}
+              out:fly={{ y: -20, duration: 200 }}
+              class="inline-flex items-center justify-center gap-1.5 col-start-1 row-start-1 w-full min-w-0"
+            >
               <RefreshCw size={14} />
               <span class="truncate">检查连接</span>
             </span>
@@ -244,9 +256,7 @@
         data-form-type="other"
         data-lpignore="true"
         disabled={boxConfigLoading}
-        class="w-full px-3 pr-10 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors font-mono disabled:opacity-50 {r
-          ? 'rounded-lg'
-          : ''}"
+        class="w-full px-3 pr-10 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors font-mono disabled:opacity-50 rounded-lg"
         placeholder="留空表示无密钥"
       />
       <button
@@ -290,15 +300,16 @@
           <div class="text-sm font-bold text-slate-900 dark:text-slate-200">循环包含模式与顺序</div>
           <div class="space-y-2">
             {#each typedToggleModeOrder as mode, index (mode)}
-              <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 {r ? 'rounded-lg' : ''}">
+              <div
+                animate:flip={{ duration: 220, easing: cubicOut }}
+                class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 rounded-lg"
+              >
                 <CheckBox id={`mode-cycle-${mode}`} checked={typedToggleModeCycle.includes(mode)} onchange={() => toggleModeCycleEntry(mode)} label={proxyModeLabels[mode]} bare />
                 <div class="flex items-center gap-1">
                   <button
                     type="button"
                     onclick={() => moveToggleModeCycle(index, -1)}
-                    class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r
-                      ? 'rounded-lg'
-                      : ''}"
+                    class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
                     disabled={index === 0 || boxConfigLoading}
                     aria-label="上移"
                   >
@@ -307,9 +318,7 @@
                   <button
                     type="button"
                     onclick={() => moveToggleModeCycle(index, 1)}
-                    class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r
-                      ? 'rounded-lg'
-                      : ''}"
+                    class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
                     disabled={index === typedToggleModeOrder.length - 1 || boxConfigLoading}
                     aria-label="下移"
                   >
@@ -351,7 +360,14 @@
 
             <div class="flex flex-col gap-2">
               <label for="target-wifi-list-service" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 核心动作映射</label>
-              <textarea id="target-wifi-list-service" bind:value={targetWifiList} disabled={boxConfigLoading} rows="2" class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm {r ? 'rounded-lg' : ''}" placeholder="CMCC_XXXX,start;TPLINK_XXXX,stop"></textarea>
+              <textarea
+                id="target-wifi-list-service"
+                bind:value={targetWifiList}
+                disabled={boxConfigLoading}
+                rows="2"
+                class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
+                placeholder="CMCC_XXXX,start;TPLINK_XXXX,stop"
+              ></textarea>
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方动作；格式：SSID,start/stop;SSID,start/stop</span>
             </div>
           </div>
@@ -370,7 +386,14 @@
 
             <div class="flex flex-col gap-2">
               <label for="target-wifi-list-tun" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID TUN 映射</label>
-              <textarea id="target-wifi-list-tun" bind:value={targetWifiList} disabled={boxConfigLoading} rows="2" class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm {r ? 'rounded-lg' : ''}" placeholder="CMCC_XXXX,true;TPLINK_XXXX,false"></textarea>
+              <textarea
+                id="target-wifi-list-tun"
+                bind:value={targetWifiList}
+                disabled={boxConfigLoading}
+                rows="2"
+                class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
+                placeholder="CMCC_XXXX,true;TPLINK_XXXX,false"
+              ></textarea>
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方目标；格式：SSID,true/false;SSID,true/false</span>
             </div>
           </div>
@@ -378,24 +401,52 @@
           <div class="space-y-4">
             <div class="flex flex-col gap-2">
               <label for="select-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">策略组名称</label>
-              <input id="select-outbound" type="text" bind:value={selectOutbound} disabled={boxConfigLoading} class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 {r ? 'rounded-lg' : ''}" placeholder="Proxy" />
+              <input
+                id="select-outbound"
+                type="text"
+                bind:value={selectOutbound}
+                disabled={boxConfigLoading}
+                class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
+                placeholder="Proxy"
+              />
               <span class="text-xs text-slate-500 dark:text-slate-400">对应 Clash API 中的 selector 代理组</span>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-2">
                 <label for="target-cellular-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝目标</label>
-                <input id="target-cellular-outbound" type="text" bind:value={targetCellular} disabled={boxConfigLoading} class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 {r ? 'rounded-lg' : ''}" placeholder="Proxy / last / 留空不改变" />
+                <input
+                  id="target-cellular-outbound"
+                  type="text"
+                  bind:value={targetCellular}
+                  disabled={boxConfigLoading}
+                  class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
+                  placeholder="Proxy / last / 留空不改变"
+                />
               </div>
               <div class="flex flex-col gap-2">
                 <label for="target-wifi-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 目标</label>
-                <input id="target-wifi-outbound" type="text" bind:value={targetWifi} disabled={boxConfigLoading} class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 {r ? 'rounded-lg' : ''}" placeholder="DIRECT" />
+                <input
+                  id="target-wifi-outbound"
+                  type="text"
+                  bind:value={targetWifi}
+                  disabled={boxConfigLoading}
+                  class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
+                  placeholder="DIRECT"
+                />
               </div>
             </div>
 
             <div class="flex flex-col gap-2">
               <label for="target-wifi-list-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 出站映射</label>
-              <textarea id="target-wifi-list-outbound" bind:value={targetWifiList} disabled={boxConfigLoading} rows="2" class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm {r ? 'rounded-lg' : ''}" placeholder="CMCC_XXXX,DIRECT;TPLINK_XXXX,Proxy"></textarea>
+              <textarea
+                id="target-wifi-list-outbound"
+                bind:value={targetWifiList}
+                disabled={boxConfigLoading}
+                rows="2"
+                class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
+                placeholder="CMCC_XXXX,DIRECT;TPLINK_XXXX,Proxy"
+              ></textarea>
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方目标；格式：SSID,出站;SSID,出站</span>
             </div>
           </div>
@@ -414,7 +465,14 @@
 
             <div class="flex flex-col gap-2">
               <label for="target-wifi-list-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 模式映射</label>
-              <textarea id="target-wifi-list-mode" bind:value={targetWifiList} disabled={boxConfigLoading} rows="2" class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm {r ? 'rounded-lg' : ''}" placeholder="CMCC_XXXX,rule;TPLINK_XXXX,direct"></textarea>
+              <textarea
+                id="target-wifi-list-mode"
+                bind:value={targetWifiList}
+                disabled={boxConfigLoading}
+                rows="2"
+                class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
+                placeholder="CMCC_XXXX,rule;TPLINK_XXXX,direct"
+              ></textarea>
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方目标；格式：SSID,rule/global/direct;SSID,rule/global/direct</span>
             </div>
           </div>
@@ -427,9 +485,7 @@
     <button
       type="submit"
       disabled={boxConfigLoading}
-      class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none disabled:opacity-80 hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px {r
-        ? 'rounded-lg'
-        : ''}"
+      class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none disabled:opacity-80 hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px rounded-lg"
     >
       <div class="grid place-items-center">
         {#if boxConfigSaved}

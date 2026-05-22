@@ -1,6 +1,5 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { roundedStore } from "$lib/settings";
 
   type LogType = "info" | "success" | "error" | "cmd";
   type LogEntry = { time: string; msg: string; type: LogType };
@@ -8,8 +7,6 @@
   let { logs = $bindable() }: { logs: LogEntry[] } = $props();
   let logsContainer: HTMLElement;
   let stickToBottom = true;
-
-  const r = $derived($roundedStore);
 
   function updateStickToBottom() {
     if (!logsContainer) return;
@@ -33,11 +30,11 @@
   }
 </script>
 
-<section class="bg-zinc-950 border border-zinc-800 flex flex-col w-full mt-4 min-h-55 h-[34vh] max-h-105 {r ? 'rounded-xl overflow-hidden' : ''}">
-  <div class="px-4 py-2 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center shrink-0 {r ? 'rounded-t-xl' : ''}">
+<section class="bg-zinc-950 border border-zinc-800 flex flex-col w-full mt-4 min-h-55 h-[34vh] max-h-105 rounded-xl overflow-hidden">
+  <div class="px-4 py-2 bg-zinc-900 border-b border-zinc-800 flex justify-between items-center shrink-0 rounded-t-xl">
     <h2 class="m-0 text-xs font-mono font-bold tracking-widest text-zinc-500 uppercase">Terminal Logs</h2>
     <button
-      class="text-xs font-mono text-zinc-400 hover:text-zinc-200 border border-zinc-700 bg-zinc-900 px-2 py-1 transition-all duration-300 outline-none hover:border-zinc-500 {r ? 'rounded-md' : ''}"
+      class="text-xs font-mono text-zinc-400 hover:text-zinc-200 border border-zinc-700 bg-zinc-900 px-2 py-1 transition-all duration-300 outline-none hover:border-zinc-500 rounded-md"
       onclick={clearLogs}
     >
       CLEAR

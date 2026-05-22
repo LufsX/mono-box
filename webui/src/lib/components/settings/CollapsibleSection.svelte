@@ -3,8 +3,6 @@
   import { cubicOut } from "svelte/easing";
   import { fly, slide } from "svelte/transition";
   import { ChevronDown } from "@lucide/svelte";
-  import { roundedStore } from "$lib/settings";
-
   let {
     title,
     controls,
@@ -21,20 +19,18 @@
     children: Snippet;
   }>();
 
-  const r = $derived($roundedStore);
-
   function toggleOpen() {
     open = !open;
     onchange?.(open);
   }
 </script>
 
-<section in:fly={{ y: 12, duration: 260, delay, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors {r ? 'rounded-xl' : ''}">
+<section in:fly={{ y: 12, duration: 260, delay, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">
   <button
     type="button"
     class="w-full px-4 py-3 flex items-center justify-between gap-3 border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 text-left transition-colors hover:bg-slate-100 dark:hover:bg-zinc-900 {open
       ? 'border-b'
-      : ''} {r ? (open ? 'rounded-t-xl' : 'rounded-xl') : ''}"
+      : ''} {open ? 'rounded-t-xl' : 'rounded-xl'}"
     aria-expanded={open}
     aria-controls={controls}
     onclick={toggleOpen}

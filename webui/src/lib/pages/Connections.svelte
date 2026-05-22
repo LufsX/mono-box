@@ -1,19 +1,17 @@
 <script lang="ts">
   import { onMount, onDestroy } from "svelte";
+  import { useModalHistory } from "$lib/modal-history";
   import { fade, scale, slide } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import { Activity, X, Trash2, ArrowDown, ArrowUp, Globe, ArrowUpDown, ChevronDown, ArrowUpNarrowWide, ArrowDownWideNarrow } from "@lucide/svelte";
-  import * as clashRealApi from "$lib/api/clash";
-  import * as clashMockApi from "$lib/api/clash.mock";
-  import { roundedStore } from "$lib/settings";
+  import { clashApi } from "$lib/api";
+  import type { ClashConnection } from "$lib/api";
+  import { classifyConnectionError } from "$lib/api/error-utils";
+  import KernelAuthNotice from "$lib/components/shared/KernelAuthNotice.svelte";
   import { clashConnectionTagClass, formatBytes } from "$lib/utils";
 
-  const useMockApi = import.meta.env.MODE !== "production";
-  const clashApi = useMockApi ? clashMockApi : clashRealApi;
-  const r = $derived($roundedStore);
-
-  type EnrichedConnection = clashRealApi.ClashConnection & {
+  type EnrichedConnection = ClashConnection & {
     upSpeed: number;
     downSpeed: number;
   };
@@ -27,6 +25,7 @@
   let globalDownSpeed = $state(0);
   let loading = $state(true);
   let error = $state("");
+  let errorReason = $state<"unauthorized" | "unreachable" | "">("");
   let timer: ReturnType<typeof setInterval>;
 
   let prevTraffic = new Map<string, { upload: number; download: number; timestamp: number }>();
@@ -36,8 +35,11 @@
 
   let sortMode = $state<SortMode>("default");
   let activeConnectionId = $state<string | null>(null);
-  let modalHistoryPushed = false;
   let rawOpen = $state(false);
+
+  const modalHistory = useModalHistory("connections", () => {
+    activeConnectionId = null;
+  });
 
   function applySort() {
     if (connections.length <= 1) return;
@@ -54,19 +56,6 @@
       if (byHost !== 0) return byHost * dir;
       return (defaultOrderIndex.get(a.id) ?? 0) - (defaultOrderIndex.get(b.id) ?? 0);
     });
-  }
-
-  function pushModalHistory() {
-    if (modalHistoryPushed) return;
-    if (typeof history === "undefined") return;
-    history.pushState({ ...(history.state || {}), __modal: "connections" }, "");
-    modalHistoryPushed = true;
-  }
-
-  function handlePopState() {
-    if (!activeConnectionId) return;
-    activeConnectionId = null;
-    modalHistoryPushed = false;
   }
 
   function formatDuration(startTime: string): string {
@@ -196,8 +185,11 @@
 
       if (loading) loading = false;
       error = "";
+      errorReason = "";
     } catch (err: any) {
-      error = err.message || "Failed to fetch connections";
+      const classified = classifyConnectionError(err);
+      errorReason = classified.reason;
+      error = classified.message;
       if (loading) loading = false;
     }
   }
@@ -224,30 +216,22 @@
   }
 
   function openDetail(id: string) {
-    if (!activeConnectionId) pushModalHistory();
+    if (!activeConnectionId) modalHistory.push();
     activeConnectionId = id;
     rawOpen = false;
   }
 
   function closeDetail() {
-    if (modalHistoryPushed && typeof history !== "undefined") {
-      history.back();
-      return;
-    }
-    activeConnectionId = null;
-    modalHistoryPushed = false;
-    rawOpen = false;
+    modalHistory.close();
   }
 
   onMount(() => {
     fetchConnections();
     timer = setInterval(fetchConnections, 1000);
-    window.addEventListener("popstate", handlePopState);
   });
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
-    window.removeEventListener("popstate", handlePopState);
   });
 </script>
 
@@ -261,7 +245,7 @@
     <div class="flex items-center gap-2 shrink-0">
       <button
         class="inline-flex items-center gap-2 h-8 px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-900/90 dark:hover:bg-zinc-900/70 dark:text-zinc-200 text-xs font-bold leading-none transition-colors
-        {r ? 'rounded-lg' : ''}"
+        rounded-lg"
         onclick={() => {
           sortMode = sortMode === "default" ? "host-asc" : sortMode === "host-asc" ? "host-desc" : "default";
           applySort();
@@ -281,7 +265,7 @@
 
       <button
         class="inline-flex items-center gap-2 h-8 px-3 py-1.5 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 text-xs font-bold leading-none transition-colors disabled:opacity-60
-        {r ? 'rounded-lg' : ''}"
+        rounded-lg"
         onclick={closeAll}
         disabled={connections.length === 0}
         aria-label="全部关闭"
@@ -296,12 +280,10 @@
   {#if loading}
     <div class="py-12 flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm">正在加载连接...</div>
   {:else if error}
-    <div class="px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 text-sm {r ? 'rounded-lg' : ''}">
-      {error}
-    </div>
+    <KernelAuthNotice reason={errorReason || "unreachable"} />
   {:else}
     <div class="grid grid-cols-2 gap-3">
-      <div class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors {r ? 'rounded-xl' : ''}">
+      <div class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors rounded-xl">
         <div class="text-xs font-semibold text-slate-400 dark:text-zinc-500 mb-1 flex items-center gap-1.5">
           <ArrowUp size={14} class="text-emerald-500" />
           <span>总上传</span>
@@ -313,7 +295,7 @@
           <div class="text-xs font-mono text-slate-400 dark:text-zinc-500">累计: {formatBytes(uploadTotal)}</div>
         </div>
       </div>
-      <div class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors {r ? 'rounded-xl' : ''}">
+      <div class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors rounded-xl">
         <div class="text-xs font-semibold text-slate-400 dark:text-zinc-500 mb-1 flex items-center gap-1.5">
           <ArrowDown size={14} class="text-blue-500" />
           <span>总下载</span>
@@ -330,7 +312,7 @@
     <div class="space-y-3">
       {#each connections as conn (conn.id)}
         <article
-          class="relative border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 transition-colors overflow-hidden will-change-transform {r ? 'rounded-xl' : ''}"
+          class="relative border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 transition-colors overflow-hidden will-change-transform rounded-xl"
           transition:pop={{ duration: 180 }}
           animate:flip={{ duration: 220, easing: cubicOut }}
         >
@@ -350,17 +332,17 @@
               <div class="font-mono text-sm font-bold text-slate-900 dark:text-slate-200 truncate" title={conn.metadata.host || conn.metadata.destinationIP}>
                 {conn.metadata.host || conn.metadata.destinationIP}
               </div>
-              <div class={clashConnectionTagClass("time", conn.start, r, "compact")}>
+              <div class={clashConnectionTagClass("time", conn.start, undefined, "compact")}>
                 {formatDuration(conn.start)}
               </div>
             </div>
 
             <div class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center text-xs text-slate-500 dark:text-zinc-500">
               <div class="flex items-center gap-2 min-w-0">
-                <span class={clashConnectionTagClass("network", conn.metadata.network, r, "compact")}>{conn.metadata.network.toUpperCase()}</span>
-                <span class={clashConnectionTagClass("type", conn.metadata.type, r, "compact")}>{conn.metadata.type}</span>
+                <span class={clashConnectionTagClass("network", conn.metadata.network, undefined, "compact")}>{conn.metadata.network.toUpperCase()}</span>
+                <span class={clashConnectionTagClass("type", conn.metadata.type, undefined, "compact")}>{conn.metadata.type}</span>
                 {#if conn.rule}
-                  <span class={clashConnectionTagClass("rule", conn.rule, r, "compact")}>{conn.rule}</span>
+                  <span class={clashConnectionTagClass("rule", conn.rule, undefined, "compact")}>{conn.rule}</span>
                 {/if}
               </div>
 
@@ -379,7 +361,7 @@
 
             <div class="mt-1 grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center text-xs">
               <div class="min-w-0" title={conn.chains?.join(" > ")}>
-                <span class={`${clashConnectionTagClass("chain", conn.chains?.[0] || "DIRECT", r, "compact")} max-w-full`}>
+                <span class={`${clashConnectionTagClass("chain", conn.chains?.[0] || "DIRECT", undefined, "compact")} max-w-full`}>
                   <span class="truncate">{conn.chains?.[0] || "DIRECT"}</span>
                 </span>
               </div>
@@ -390,8 +372,7 @@
                   {formatBytes(conn.upSpeed + conn.downSpeed)}/s
                 </span>
                 <button
-                  class="inline-flex items-center justify-center w-4 h-4 border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors
-                  {r ? 'rounded-full' : ''}"
+                  class="inline-flex items-center justify-center w-4 h-4 border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors rounded-lg"
                   onclick={(event) => closeConnection(conn.id, event)}
                   title="关闭连接"
                 >
@@ -429,13 +410,13 @@
       }}
     >
       <div
-        class="mx-auto w-full flex max-h-[72dvh] max-w-2xl flex-col border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 {r ? 'rounded-xl overflow-hidden' : ''}"
+        class="mx-auto w-full flex max-h-[72dvh] max-w-2xl flex-col border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 rounded-xl overflow-hidden"
         in:scale={{ duration: 230, easing: cubicOut, start: 0.97 }}
         out:scale={{ duration: 170, easing: cubicOut, start: 1 }}
       >
         <div class="flex items-center justify-between px-4 py-3 border-b border-slate-300 dark:border-zinc-700 shrink-0">
           <div class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate pr-4">连接详情</div>
-          <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 {r ? 'rounded-lg' : ''}" onclick={closeDetail}>
+          <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 rounded-lg" onclick={closeDetail}>
             <X size={14} />
           </button>
         </div>
@@ -445,10 +426,10 @@
               {activeConn.metadata.host || activeConn.metadata.destinationIP}
             </div>
             <div class="flex gap-2 items-center flex-wrap">
-              <span class={clashConnectionTagClass("network", activeConn.metadata.network, r, "normal")}>{activeConn.metadata.network.toUpperCase()}</span>
-              <span class={clashConnectionTagClass("type", activeConn.metadata.type, r, "normal")}>{activeConn.metadata.type}</span>
+              <span class={clashConnectionTagClass("network", activeConn.metadata.network, undefined, "normal")}>{activeConn.metadata.network.toUpperCase()}</span>
+              <span class={clashConnectionTagClass("type", activeConn.metadata.type, undefined, "normal")}>{activeConn.metadata.type}</span>
               {#if activeConn.rule}
-                <span class={clashConnectionTagClass("rule", activeConn.rule, r, "normal")}>{activeConn.rule} {activeConn.rulePayload ? `(${activeConn.rulePayload})` : ""}</span>
+                <span class={clashConnectionTagClass("rule", activeConn.rule, undefined, "normal")}>{activeConn.rule} {activeConn.rulePayload ? `(${activeConn.rulePayload})` : ""}</span>
               {/if}
             </div>
           </div>
@@ -456,11 +437,11 @@
           {#if activeConn.chains && activeConn.chains.length > 0}
             <div>
               <span class="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">代理链</span>
-              <div class="mt-1.5 bg-slate-50 dark:bg-zinc-900/50 p-2.5 border border-slate-200 dark:border-zinc-800 {r ? 'rounded-lg' : ''}">
+              <div class="mt-1.5 bg-slate-50 dark:bg-zinc-900/50 p-2.5 border border-slate-200 dark:border-zinc-800 rounded-lg">
                 <div class="flex flex-wrap items-center gap-x-2 gap-y-2">
                   {#each activeConn.chains as chain, i (i)}
                     <div class="flex items-center gap-2">
-                      <span class={`${clashConnectionTagClass("chain", chain, r, "normal")} gap-2`}>
+                      <span class={`${clashConnectionTagClass("chain", chain, undefined, "normal")} gap-2`}>
                         <span class="text-slate-400 dark:text-zinc-500">{(i + 1).toString().padStart(2, "0")}</span>
                         <span class="break-all">{chain}</span>
                       </span>
@@ -476,7 +457,7 @@
           {/if}
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div class="border border-slate-200 dark:border-zinc-800 p-3 bg-slate-50 dark:bg-zinc-900/50 {r ? 'rounded-lg' : ''}">
+            <div class="border border-slate-200 dark:border-zinc-800 p-3 bg-slate-50 dark:bg-zinc-900/50 rounded-lg">
               <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">源地址</div>
               <div class="font-mono text-sm mt-1 whitespace-nowrap">
                 <span class="text-slate-700 dark:text-zinc-200">{activeConn.metadata.sourceIP}</span><span class="text-slate-400 dark:text-zinc-600">:</span><span
@@ -484,7 +465,7 @@
                 >
               </div>
             </div>
-            <div class="border border-slate-200 dark:border-zinc-800 p-3 bg-slate-50 dark:bg-zinc-900/50 {r ? 'rounded-lg' : ''}">
+            <div class="border border-slate-200 dark:border-zinc-800 p-3 bg-slate-50 dark:bg-zinc-900/50 rounded-lg">
               <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-zinc-400">目标地址</div>
               <div class="font-mono text-sm mt-1 whitespace-nowrap">
                 <span class="text-slate-700 dark:text-zinc-200">{activeConn.metadata.destinationIP}</span><span class="text-slate-400 dark:text-zinc-600">:</span><span
@@ -495,14 +476,14 @@
           </div>
 
           <div class="grid grid-cols-2 gap-3 mt-1">
-            <div class="flex flex-col gap-1 border border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 {r ? 'rounded-lg' : ''}">
+            <div class="flex flex-col gap-1 border border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/50 dark:bg-emerald-950/20 p-2.5 rounded-lg">
               <span class="text-[10px] font-bold text-emerald-600 dark:text-emerald-500">上传</span>
               <div class="font-mono text-sm text-emerald-700 dark:text-emerald-400 flex flex-col">
                 <span>{formatBytes(activeConn.upSpeed)}/s</span>
                 <span class="text-[10px] opacity-70 mt-0.5">累计: {formatBytes(activeConn.upload)}</span>
               </div>
             </div>
-            <div class="flex flex-col gap-1 border border-blue-100 dark:border-blue-900/30 bg-blue-50/50 dark:bg-blue-950/20 p-2.5 {r ? 'rounded-lg' : ''}">
+            <div class="flex flex-col gap-1 border border-blue-100 dark:border-blue-900/30 bg-blue-50/50 dark:bg-blue-950/20 p-2.5 rounded-lg">
               <span class="text-[10px] font-bold text-blue-600 dark:text-blue-500">下载</span>
               <div class="font-mono text-sm text-blue-700 dark:text-blue-400 flex flex-col">
                 <span>{formatBytes(activeConn.downSpeed)}/s</span>
@@ -516,7 +497,7 @@
             <div><span class="font-semibold">连接ID:</span> <span class="font-mono">{activeConn.id}</span></div>
           </div>
 
-          <div class="border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 px-3 py-2 text-[11px] text-slate-600 dark:text-zinc-300 {r ? 'rounded-lg' : ''}">
+          <div class="border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 px-3 py-2 text-[11px] text-slate-600 dark:text-zinc-300 rounded-lg">
             <button type="button" class="w-full flex items-center justify-between gap-2 text-left cursor-pointer select-none font-bold" aria-expanded={rawOpen} onclick={() => (rawOpen = !rawOpen)}>
               <span>原始数据</span>
               <ChevronDown size={14} class="shrink-0 text-slate-400 dark:text-zinc-500 transition-transform duration-150 {rawOpen ? 'rotate-180' : ''}" />
@@ -532,7 +513,7 @@
         <div class="px-4 py-3 border-t border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/20 flex justify-end shrink-0">
           <button
             class="flex items-center justify-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-medium transition-colors w-full sm:w-auto
-            {r ? 'rounded-lg' : ''}"
+            rounded-lg"
             onclick={() => closeConnection(activeConn.id)}
           >
             <Trash2 size={16} />

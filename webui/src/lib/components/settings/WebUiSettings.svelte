@@ -3,8 +3,8 @@
   import { cubicOut } from "svelte/easing";
   import { fly } from "svelte/transition";
   import { ArrowDown, ArrowUp, Check, Save } from "@lucide/svelte";
-  import CheckBox from "$lib/components/CheckBox.svelte";
-  import { roundedStore, type BottomTabId, type HomeLayoutSettings, type HomeModuleId } from "$lib/settings";
+  import CheckBox from "$lib/components/common/CheckBox.svelte";
+  import { type BottomTabId, type HomeLayoutSettings, type HomeModuleId } from "$lib/settings";
 
   let {
     homeLayout = $bindable<HomeLayoutSettings>(),
@@ -24,7 +24,6 @@
     onreset: () => void;
   }>();
 
-  const r = $derived($roundedStore);
   const bottomTabOrder = $derived(homeLayout.bottomTabOrder as BottomTabId[]);
   const moduleOrder = $derived(homeLayout.moduleOrder as HomeModuleId[]);
 
@@ -122,7 +121,7 @@
   <div class="space-y-2">
     <p class="text-sm font-bold text-slate-900 dark:text-slate-200">底部 Tab 显示与排序</p>
     {#each bottomTabOrder as tabId, index (tabId)}
-      <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 {r ? 'rounded-lg' : ''}">
+      <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 rounded-lg">
         {#if tabId === "settings"}
           <div class="pointer-events-none opacity-90">
             <CheckBox id={`tab-${tabId}`} checked={true} onchange={() => {}} label={`${bottomTabLabels[tabId]} (固定)`} bare />
@@ -131,10 +130,22 @@
           <CheckBox id={`tab-${tabId}`} checked={isBottomTabVisible(tabId)} onchange={() => toggleBottomTabVisible(tabId)} label={bottomTabLabels[tabId]} bare />
         {/if}
         <div class="flex items-center gap-1">
-          <button type="button" onclick={() => moveBottomTab(index, -1)} class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r ? 'rounded-lg' : ''}" disabled={index === 0} aria-label="上移">
+          <button
+            type="button"
+            onclick={() => moveBottomTab(index, -1)}
+            class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
+            disabled={index === 0}
+            aria-label="上移"
+          >
             <ArrowUp size={14} />
           </button>
-          <button type="button" onclick={() => moveBottomTab(index, 1)} class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r ? 'rounded-lg' : ''}" disabled={index === bottomTabOrder.length - 1} aria-label="下移">
+          <button
+            type="button"
+            onclick={() => moveBottomTab(index, 1)}
+            class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
+            disabled={index === bottomTabOrder.length - 1}
+            aria-label="下移"
+          >
             <ArrowDown size={14} />
           </button>
         </div>
@@ -147,13 +158,25 @@
 
   <div class="flex flex-col gap-2">
     <label for="panel-url" class="text-sm font-bold text-slate-900 dark:text-slate-200">面板快捷跳转 URL</label>
-    <input id="panel-url" type="text" bind:value={homeLayout.panelUrl} class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors {r ? 'rounded-lg' : ''}" placeholder={defaultPanelUrl} />
+    <input
+      id="panel-url"
+      type="text"
+      bind:value={homeLayout.panelUrl}
+      class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors rounded-lg"
+      placeholder={defaultPanelUrl}
+    />
     <span class="text-xs text-slate-500 dark:text-slate-400">留空使用默认：{defaultPanelUrl}</span>
   </div>
 
   <div class="flex flex-col gap-2">
     <label for="proxy-test-url" class="text-sm font-bold text-slate-900 dark:text-slate-200">代理测速 URL</label>
-    <input id="proxy-test-url" type="text" bind:value={homeLayout.proxyTestUrl} class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors {r ? 'rounded-lg' : ''}" placeholder="http://cp.cloudflare.com/generate_204" />
+    <input
+      id="proxy-test-url"
+      type="text"
+      bind:value={homeLayout.proxyTestUrl}
+      class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors rounded-lg"
+      placeholder="http://cp.cloudflare.com/generate_204"
+    />
     <span class="text-xs text-slate-500 dark:text-slate-400">代理页面测速默认使用该 URL，可按网络环境自行调整</span>
   </div>
 
@@ -162,13 +185,25 @@
   <div class="space-y-2">
     <p class="text-sm font-bold text-slate-900 dark:text-slate-200">首页模块显示与排序</p>
     {#each moduleOrder as moduleId, index (moduleId)}
-      <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 {r ? 'rounded-lg' : ''}">
+      <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 rounded-lg">
         <CheckBox id={`module-${moduleId}`} checked={isModuleVisible(moduleId)} onchange={() => toggleModuleVisible(moduleId)} label={moduleLabels[moduleId]} bare />
         <div class="flex items-center gap-1">
-          <button type="button" onclick={() => moveModule(index, -1)} class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r ? 'rounded-lg' : ''}" disabled={index === 0} aria-label="上移">
+          <button
+            type="button"
+            onclick={() => moveModule(index, -1)}
+            class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
+            disabled={index === 0}
+            aria-label="上移"
+          >
             <ArrowUp size={14} />
           </button>
-          <button type="button" onclick={() => moveModule(index, 1)} class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors {r ? 'rounded-lg' : ''}" disabled={index === moduleOrder.length - 1} aria-label="下移">
+          <button
+            type="button"
+            onclick={() => moveModule(index, 1)}
+            class="inline-flex items-center justify-center p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-slate-300 disabled:opacity-40 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
+            disabled={index === moduleOrder.length - 1}
+            aria-label="下移"
+          >
             <ArrowDown size={14} />
           </button>
         </div>
@@ -180,9 +215,7 @@
     <button
       type="button"
       onclick={onsave}
-      class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px {r
-        ? 'rounded-lg'
-        : ''}"
+      class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px rounded-lg"
     >
       <div class="grid place-items-center">
         {#if homeLayoutSaved}
@@ -198,7 +231,11 @@
         {/if}
       </div>
     </button>
-    <button type="button" onclick={onreset} class="group relative overflow-hidden border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 px-4 py-2.5 text-sm font-bold transition-colors outline-none hover:bg-slate-100 dark:hover:bg-zinc-900 {r ? 'rounded-lg' : ''}">
+    <button
+      type="button"
+      onclick={onreset}
+      class="group relative overflow-hidden border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 px-4 py-2.5 text-sm font-bold transition-colors outline-none hover:bg-slate-100 dark:hover:bg-zinc-900 rounded-lg"
+    >
       <div class="grid place-items-center">
         {#if homeLayoutReseted}
           <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="col-start-1 row-start-1">恢复成功</span>

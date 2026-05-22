@@ -1,17 +1,11 @@
 <script lang="ts">
-  import { roundedStore } from "$lib/settings";
+  import { onMount } from "svelte";
+  import { stores, actions } from "$lib/api";
 
-  let {
-    config,
-    version,
-  }: {
-    config: Record<string, unknown> | null;
-    version: string;
-  } = $props();
+  const configs = stores.configs;
+  const versionCheck = stores.versionCheck;
 
-  const safeConfig = $derived(config ?? {});
-
-  const r = $derived($roundedStore);
+  const safeConfig = $derived($configs ?? {});
 
   const ports = $derived(
     [
@@ -22,10 +16,17 @@
       { label: "TPROXY PORT", key: "tproxy-port" },
     ].filter((p) => safeConfig[p.key] && safeConfig[p.key] !== 0),
   );
+
+  const version = $derived($versionCheck?.ok ? $versionCheck.version : "-");
+
+  onMount(() => {
+    actions.refreshConfigs();
+    actions.refreshVersion();
+  });
 </script>
 
-<section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors {r ? 'rounded-xl' : ''}">
-  <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 {r ? 'rounded-t-xl' : ''}">
+<section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">
+  <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 rounded-t-xl">
     <h2 class="text-xs font-bold uppercase tracking-widest text-slate-600 dark:text-zinc-400 m-0">核心状态与端口</h2>
   </div>
   <div class="p-4 flex flex-col gap-4">

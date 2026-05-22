@@ -1,26 +1,19 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import * as clashRealApi from "$lib/api/clash";
-  import * as clashMockApi from "$lib/api/clash.mock";
-  import * as actionRealApi from "$lib/api/action";
-  import * as actionMockApi from "$lib/api/action.mock";
-  import { getDefaultHomeLayoutSettings, loadHomeLayoutSettings, saveHomeLayoutSettings, roundedStore } from "$lib/settings";
+  import { clashApi, actionApi, getBoxConfigRaw, parseBoxConfig, updateBoxConfigValues } from "$lib/api";
+  import type { ControlMode, ProxyMode } from "$lib/api";
+  import { getDefaultHomeLayoutSettings, loadHomeLayoutSettings, saveHomeLayoutSettings } from "$lib/settings";
   import AboutSettings from "$lib/components/settings/AboutSettings.svelte";
   import BoxConfigSettings from "$lib/components/settings/BoxConfigSettings.svelte";
   import CollapsibleSection from "$lib/components/settings/CollapsibleSection.svelte";
   import WebUiSettings from "$lib/components/settings/WebUiSettings.svelte";
 
-  type ProxyMode = "rule" | "global" | "direct";
-  type ControlMode = "disable" | "switch" | "tun" | "selector" | "mode";
   type SettingsSectionState = {
     boxConfig: boolean;
     webUi: boolean;
     about: boolean;
   };
 
-  const isProd = import.meta.env.MODE !== "production";
-  const clashApi = isProd ? clashMockApi : clashRealApi;
-  const actionApi = isProd ? actionMockApi : actionRealApi;
   const ALL_PROXY_MODES: ProxyMode[] = ["rule", "global", "direct"];
   const SETTINGS_SECTION_STORAGE_KEY = "mono-box.settings-sections";
   const DEFAULT_SETTINGS_SECTION_STATE: SettingsSectionState = {
@@ -154,8 +147,8 @@
     try {
       boxConfigLoading = true;
       boxConfigError = "";
-      const content = await clashApi.readBoxConfig();
-      const parsed = clashApi.parseBoxConfig(content);
+      const content = await getBoxConfigRaw();
+      const parsed = parseBoxConfig(content);
 
       boxConfigPort = parsed.clashApiPort;
       boxConfigSecret = parsed.clashApiSecret;
@@ -182,7 +175,7 @@
       boxConfigLoading = true;
       boxConfigError = "";
 
-      await clashApi.updateBoxConfigValues({
+      await updateBoxConfigValues({
         clash_api_port: boxConfigPort.toString(),
         clash_api_secret: quoteBoxConfigValue(boxConfigSecret),
         toggle_action: `"${toggleAction}"`,
@@ -262,7 +255,6 @@
       saveHomeLayoutSettings(homeLayout);
       triggerHomeLayoutSavedState();
       await actionApi.setEdgeToEdge(homeLayout.edgeToEdge);
-      roundedStore.set(homeLayout.rounded);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       homeLayoutError = `保存首页布局失败: ${message}`;

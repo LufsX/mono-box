@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Check } from "@lucide/svelte";
-  import { roundedStore } from "$lib/settings";
 
   interface Props {
     id: string;
@@ -12,15 +11,13 @@
   }
 
   let { id, checked, onchange, label, bare = false, variant = "checkbox" }: Props = $props();
-
-  const r = $derived($roundedStore);
 </script>
 
 <label
   for={id}
   class="group flex items-center gap-3 cursor-pointer select-none transition-colors {bare
     ? ''
-    : 'border border-slate-300 dark:border-zinc-700 px-3 py-2.5 bg-white dark:bg-zinc-950/50 hover:bg-slate-50 dark:hover:bg-zinc-800'} {r && !bare ? 'rounded-lg' : ''}"
+    : 'border border-slate-300 dark:border-zinc-700 px-3 py-2.5 bg-white dark:bg-zinc-950/50 hover:bg-slate-50 dark:hover:bg-zinc-800'} rounded-xl"
 >
   <div class="relative flex items-center justify-center">
     {#if variant === "switch"}
@@ -30,13 +27,11 @@
           class="absolute inset-0 border border-slate-300 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 transition-colors
           peer-checked:bg-slate-800 peer-checked:border-slate-800
           dark:peer-checked:bg-slate-200 dark:peer-checked:border-slate-200
-          {r ? 'rounded-full' : ''}"
+          rounded-xl"
         ></div>
         <div
           class="absolute top-0.5 left-0.5 w-5 h-5 bg-white dark:bg-zinc-950 transition-transform
-          peer-checked:translate-x-4
-          dark:peer-checked:bg-zinc-900
-          {r ? 'rounded-full' : ''}"
+          peer-checked:translate-x-4 dark:peer-checked:bg-zinc-900 rounded-xl"
         ></div>
       </div>
     {:else}
@@ -44,8 +39,7 @@
       <div
         class="h-5 w-5 border-2 border-slate-300 dark:border-zinc-600 bg-transparent transition-all
         peer-checked:bg-slate-800 peer-checked:border-slate-800
-        dark:peer-checked:bg-slate-200 dark:peer-checked:border-slate-200
-        group-active:scale-90 {r ? 'rounded' : ''}"
+        dark:peer-checked:bg-slate-200 dark:peer-checked:border-slate-200 rounded-sm"
       ></div>
       <div class="absolute text-white dark:text-zinc-900 scale-0 peer-checked:scale-100 transition-transform duration-200 ease-out pointer-events-none">
         <Check size={14} strokeWidth={4} />

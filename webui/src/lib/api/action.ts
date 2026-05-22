@@ -1,20 +1,10 @@
 import { exec, enableEdgeToEdge } from "kernelsu";
+import { parseKeyValueText } from "./config-parser";
+import { getErrorMessage, buildExecError } from "./error-utils";
+import type { ConfigPort } from "./config-port";
+import type { CommandResult, ModuleInfo } from "./clash.types";
 
-export interface CommandResult {
-  errno: number;
-  stdout: string;
-  stderr: string;
-}
-
-export interface ModuleInfo {
-  id: string;
-  name: string;
-  version: string;
-  versionCode: string;
-  author: string;
-  description: string;
-  updateJson: string;
-}
+export type { CommandResult, ModuleInfo } from "./clash.types";
 
 const MODULE_ROOT = "/data/adb/modules/mono_box";
 const BOX_ROOT = "/data/adb/box";
@@ -36,37 +26,6 @@ function normalizeResult(result: { errno: number; stdout?: string; stderr?: stri
     stdout: result.stdout || "",
     stderr: result.stderr || "",
   };
-}
-
-function parseKeyValueText(content: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const lines = content.split(/\r?\n/);
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex <= 0) {
-      continue;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    result[key] = value;
-  }
-
-  return result;
-}
-
-function buildErrorDetails(result: CommandResult, fallbackMessage: string): Error {
-  const details = [result.stderr, result.stdout]
-    .filter((part) => typeof part === "string" && part.trim().length > 0)
-    .join("\n")
-    .trim();
-  return new Error(details || `${fallbackMessage} (errno=${result.errno})`);
 }
 
 export async function runActionScript(actionCmd: string): Promise<CommandResult> {
@@ -91,7 +50,7 @@ export async function openExternalUrlCommand(url: string): Promise<CommandResult
 export async function openExternalUrl(url: string): Promise<void> {
   const result = await openExternalUrlCommand(url);
   if (result.errno !== 0) {
-    throw buildErrorDetails(result, "am start failed");
+    throw buildExecError("am start failed", result);
   }
 }
 
@@ -104,7 +63,7 @@ export async function readModulePropRaw(): Promise<CommandResult> {
 export async function getModuleInfo(): Promise<ModuleInfo> {
   const result = await readModulePropRaw();
   if (result.errno !== 0 || !result.stdout) {
-    throw buildErrorDetails(result, "Read module.prop failed");
+    throw buildExecError("Read module.prop failed", result);
   }
 
   const parsed = parseKeyValueText(result.stdout);
@@ -119,13 +78,13 @@ export async function getModuleInfo(): Promise<ModuleInfo> {
   };
 }
 
-export async function readBoxConfigRaw(): Promise<CommandResult> {
+async function readBoxConfigRaw(): Promise<CommandResult> {
   const command = `su -c 'cat ${BOX_CONFIG_PATH}'`;
   const result = await exec(command, { cwd: BOX_ROOT });
   return normalizeResult(result);
 }
 
-export async function writeBoxConfigRaw(content: string): Promise<CommandResult> {
+async function writeBoxConfigRaw(content: string): Promise<CommandResult> {
   const normalizedContent = content.replace(/\r\n/g, "\n");
   const base64Content = toBase64Utf8(normalizedContent);
   let marker = "__MONO_BOX_B64_EOF__";
@@ -137,3 +96,26 @@ export async function writeBoxConfigRaw(content: string): Promise<CommandResult>
   const result = await exec(command, { cwd: BOX_ROOT });
   return normalizeResult(result);
 }
+
+export async function readBoxConfig(): Promise<string> {
+  const result = await readBoxConfigRaw();
+  if (result.errno !== 0) {
+    throw buildExecError("Read box.config", result);
+  }
+  if (!result.stdout) {
+    throw new Error("Read box.config failed: empty file content");
+  }
+  return result.stdout;
+}
+
+export async function writeBoxConfig(content: string): Promise<void> {
+  const result = await writeBoxConfigRaw(content);
+  if (result.errno !== 0) {
+    throw buildExecError("Write box.config", result);
+  }
+}
+
+export const configPortAdapter: ConfigPort = {
+  readBoxConfig,
+  writeBoxConfig,
+};

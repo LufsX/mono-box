@@ -44,14 +44,6 @@ status() {
     return $?
 }
 
-stop_core() {
-    "${scripts_dir}/box.service" stop >> /dev/null 2>> "${run_path}/run.log"
-}
-
-start_core() {
-    "${scripts_dir}/box.service" start >> /dev/null 2>> "${run_path}/run.log"
-}
-
 setOutbound() {
     [ -z "$1" ] || [ -z "$2" ] && return 1
     api_request PUT "/proxies/$1" "{\"name\": \"$2\"}"

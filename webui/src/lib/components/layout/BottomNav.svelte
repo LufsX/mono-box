@@ -1,10 +1,9 @@
 <script lang="ts">
   import { House, Settings, Waypoints, Activity, ListChecks } from "@lucide/svelte";
-  import { bottomTabHiddenStore, bottomTabOrderStore, roundedStore, type BottomTabId } from "$lib/settings";
+  import { bottomTabHiddenStore, bottomTabOrderStore, type BottomTabId } from "$lib/settings";
 
   let { currentPath = $bindable() }: { currentPath: string } = $props();
 
-  const r = $derived($roundedStore);
   const bottomTabOrder = $derived($bottomTabOrderStore);
   const bottomTabHidden = $derived($bottomTabHiddenStore);
 
@@ -36,7 +35,7 @@
 
 <nav
   class="box-border w-full bg-white/78 dark:bg-zinc-950/72 backdrop-blur border-t border-slate-200/80 dark:border-zinc-800/80 z-40 shadow-[0_-6px_18px_rgba(15,23,42,0.08)] dark:shadow-[0_-8px_24px_rgba(0,0,0,0.35)] transition-colors
-  {r ? 'rounded-t-xl' : ''}"
+  rounded-t-xl"
   style="padding-bottom: var(--app-bottombar-safe, env(safe-area-inset-bottom, 0px)); height: var(--app-bottombar-height, calc(4rem + env(safe-area-inset-bottom, 0px)));"
 >
   <div class="flex items-center justify-around h-16">

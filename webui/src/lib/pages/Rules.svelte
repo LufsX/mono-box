@@ -2,15 +2,12 @@
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { RefreshCw, ChevronRight } from "@lucide/svelte";
-  import * as clashRealApi from "$lib/api/clash";
-  import * as clashMockApi from "$lib/api/clash.mock";
-  import CheckBox from "$lib/components/CheckBox.svelte";
-  import { roundedStore } from "$lib/settings";
+  import { clashApi } from "$lib/api";
+  import type { ClashRuleProviderMap, ClashProxyMap } from "$lib/api";
+  import { classifyConnectionError } from "$lib/api/error-utils";
+  import KernelAuthNotice from "$lib/components/shared/KernelAuthNotice.svelte";
+  import CheckBox from "$lib/components/common/CheckBox.svelte";
   import { clashPillTagClass } from "$lib/utils";
-
-  const useMockApi = import.meta.env.MODE !== "production";
-  const clashApi = useMockApi ? clashMockApi : clashRealApi;
-  const r = $derived($roundedStore);
 
   type ViewType = "rules" | "providers";
   let currentView = $state<ViewType>("rules");
@@ -37,15 +34,16 @@
     raw: unknown;
   };
 
-  let ruleProviders = $state<clashRealApi.ClashRuleProviderMap | null>(null);
+  let ruleProviders = $state<ClashRuleProviderMap | null>(null);
   let providerNames = $state<string[]>([]);
-  let proxies = $state<clashRealApi.ClashProxyMap | null>(null);
+  let proxies = $state<ClashProxyMap | null>(null);
   let proxiesEpoch = $state(0);
   const proxyChainCache = new Map<string, string[]>();
 
   let rules = $state<RuleRow[]>([]);
   let loading = $state(true);
   let error = $state("");
+  let errorReason = $state<"unauthorized" | "unreachable" | "">("");
   let busyIndex = $state<number | null>(null);
   let updatingProvider = $state<string | null>(null);
   let updatingAllProviders = $state(false);
@@ -110,25 +108,24 @@
   }
 
   async function fetchRuleProviders() {
-    const res: any = await clashApi.getRuleProviders();
-    const incoming = (res?.providers && typeof res.providers === "object" ? res.providers : res) as clashRealApi.ClashRuleProviderMap;
+    const incoming = await clashApi.getRuleProviders();
 
-    const fixed: clashRealApi.ClashRuleProviderMap = {};
+    const fixed: ClashRuleProviderMap = {};
     for (const [key, value] of Object.entries(incoming || {})) {
       const item: any = value || {};
       const name = String((item as any).name ?? key).trim() || key;
       fixed[name] = { name, ...(item as any) };
     }
 
-    ruleProviders = syncRecord(ruleProviders as Record<string, any> | null, fixed as Record<string, any>) as clashRealApi.ClashRuleProviderMap;
+    ruleProviders = syncRecord(ruleProviders as Record<string, any> | null, fixed as Record<string, any>) as ClashRuleProviderMap;
     ruleProviders = ruleProviders;
 
     providerNames = Object.keys(fixed).sort((a, b) => a.localeCompare(b, "en", { sensitivity: "base" }));
   }
 
   async function fetchProxies() {
-    const incoming = (await clashApi.getProxies()) as clashRealApi.ClashProxyMap;
-    proxies = syncRecord(proxies as Record<string, any> | null, incoming as Record<string, any>) as clashRealApi.ClashProxyMap;
+    const incoming = (await clashApi.getProxies()) as ClashProxyMap;
+    proxies = syncRecord(proxies as Record<string, any> | null, incoming as Record<string, any>) as ClashProxyMap;
     proxies = proxies;
 
     proxiesEpoch += 1;
@@ -176,9 +173,12 @@
     loading = true;
     try {
       error = "";
+      errorReason = "";
       await Promise.all([fetchRuleProviders(), fetchProxies(), fetchRules()]);
     } catch (e: any) {
-      error = e?.message || String(e) || "Failed to fetch rules";
+      const classified = classifyConnectionError(e);
+      errorReason = classified.reason;
+      error = classified.message;
     } finally {
       loading = false;
     }
@@ -266,7 +266,7 @@
   <div class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
     <div class="flex font-bold text-sm min-w-0 overflow-x-auto">
       <button
-        class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 {r ? 'rounded-l-lg' : ''} {currentView === 'rules'
+        class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 rounded-l-lg {currentView === 'rules'
           ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
           : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
         onclick={() => {
@@ -276,7 +276,7 @@
         规则列表 {rules.length}
       </button>
       <button
-        class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px {r ? 'rounded-r-lg' : ''} {currentView === 'providers'
+        class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px rounded-r-lg {currentView === 'providers'
           ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
           : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
         onclick={() => {
@@ -289,7 +289,7 @@
 
     <button
       class="justify-self-end inline-flex items-center justify-center gap-2 px-3 py-1.5 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 text-sm font-bold whitespace-nowrap
-      {r ? 'rounded-lg' : ''}"
+      rounded-lg"
       onclick={updateAllProviders}
       hidden={currentView !== "providers"}
       disabled={updatingAllProviders || providerNames.length === 0}
@@ -306,20 +306,20 @@
       value={searchInput}
       oninput={(event) => setSearch((event.currentTarget as HTMLInputElement).value)}
       class="w-full px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors text-sm
-      {r ? 'rounded-lg' : ''}"
+      rounded-lg"
       placeholder={currentView === "providers" ? "搜索规则集合" : "搜索规则"}
     />
   </div>
 
-  <div class="px-3 py-2 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-600 dark:text-zinc-300 text-xs {r ? 'rounded-lg' : ''}">
+  <div class="px-3 py-2 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-600 dark:text-zinc-300 text-xs rounded-lg">
     <div>规则禁用为临时操作，重启服务后失效。</div>
   </div>
 
   {#if loading}
     <div class="py-12 flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm" in:fade={{ duration: 160 }}>正在加载规则...</div>
   {:else if error}
-    <div class="px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 text-sm {r ? 'rounded-lg' : ''}" in:fade={{ duration: 160 }}>
-      {error}
+    <div in:fade={{ duration: 160 }}>
+      <KernelAuthNotice reason={errorReason || "unreachable"} />
     </div>
   {:else}
     {#key currentView}
@@ -328,32 +328,26 @@
           <section class="space-y-2">
             <div class="space-y-3">
               {#if providerNames.length === 0}
-                <div
-                  class="px-3 py-2 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-600 dark:text-zinc-300 text-xs {r ? 'rounded-lg' : ''}"
-                  in:fade={{ duration: 160 }}
-                >
+                <div class="px-3 py-2 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-600 dark:text-zinc-300 text-xs rounded-lg" in:fade={{ duration: 160 }}>
                   未发现规则集合（Rule Providers）
                 </div>
               {:else if filteredProviderNames.length === 0}
-                <div
-                  class="px-3 py-2 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-600 dark:text-zinc-300 text-xs {r ? 'rounded-lg' : ''}"
-                  in:fade={{ duration: 160 }}
-                >
+                <div class="px-3 py-2 border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/50 text-slate-600 dark:text-zinc-300 text-xs rounded-lg" in:fade={{ duration: 160 }}>
                   无匹配的规则集合
                 </div>
               {:else}
                 {#each filteredProviderNames as name (name)}
                   {@const provider = ruleProviders?.[name]}
-                  <article class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors {r ? 'rounded-xl' : ''}">
+                  <article class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors rounded-xl">
                     <div class="flex items-center justify-between gap-3">
                       <div class="min-w-0">
                         <div class="flex items-center gap-2 min-w-0">
                           <div class="text-base font-extrabold text-slate-900 dark:text-slate-100 truncate">{name}</div>
                           {#if provider?.vehicleType}
-                            <span class={clashPillTagClass("type", String(provider.vehicleType), r)}>{String(provider.vehicleType)}</span>
+                            <span class={clashPillTagClass("type", String(provider.vehicleType))}>{String(provider.vehicleType)}</span>
                           {/if}
                           {#if provider?.behavior}
-                            <span class={clashPillTagClass("type", String(provider.behavior), r)}>{String(provider.behavior)}</span>
+                            <span class={clashPillTagClass("type", String(provider.behavior))}>{String(provider.behavior)}</span>
                           {/if}
                         </div>
                         <div class="mt-1 text-[11px] text-slate-400 dark:text-zinc-500">
@@ -369,9 +363,7 @@
                       </div>
 
                       <button
-                        class="inline-flex items-center justify-center w-8 h-8 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 {r
-                          ? 'rounded-lg'
-                          : ''}"
+                        class="inline-flex items-center justify-center w-8 h-8 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 rounded-lg"
                         onclick={(event) => updateProvider(event, name)}
                         disabled={updatingProvider === name || updatingAllProviders}
                         title="更新规则集合"
@@ -396,16 +388,16 @@
                   {@const enabled = !row.disabled}
                   {@const chainParts = proxyChainParts(row.proxy)}
                   <article
-                    class="border p-3 transition-colors duration-200 {r ? 'rounded-xl' : ''} {row.disabled
+                    class="border p-3 transition-colors duration-200 rounded-xl {row.disabled
                       ? 'border-red-300 dark:border-red-900/40 bg-red-50/50 dark:bg-red-950/10'
                       : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90'}"
                   >
                     <div class="flex items-start justify-between gap-3 mb-1">
                       <div class="flex items-center gap-2 min-w-0">
                         <div class="text-[10px] font-semibold text-slate-400 dark:text-zinc-500">#{row.index + 1}</div>
-                        <span class={clashPillTagClass("type", row.type, r)}>{row.type}</span>
+                        <span class={clashPillTagClass("type", row.type)}>{row.type}</span>
                         {#if row.disabled}
-                          <span class={clashPillTagClass("status", "Disabled", r)} in:fade={{ duration: 140 }} out:fade={{ duration: 140 }}>Disabled</span>
+                          <span class={clashPillTagClass("status", "Disabled")} in:fade={{ duration: 140 }} out:fade={{ duration: 140 }}>Disabled</span>
                         {/if}
                       </div>
 
@@ -427,7 +419,7 @@
                             <div>
                               <span
                                 class="inline-flex items-center px-1.5 py-0.5 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950/30 text-[11px] font-mono text-slate-700 dark:text-zinc-200
-                              {r ? 'rounded-lg' : ''}"
+                              rounded-lg"
                               >
                                 <span class="break-all">{chain}</span>
                               </span>

@@ -44,9 +44,10 @@ zip -r -o -X -ll "$ZIP_NAME" . \
   -x 'build.sh' \
   -x 'module.prop.bak' \
   -x 'module.prop.tmp' \
+  -x 'MonoBox*.zip' \
+  -x 'webui/*' \
   -x '.github/*' \
   -x '.gitignore' \
-  -x 'webui/*' \
   -x '.*/*' \
   -x '.*'
 

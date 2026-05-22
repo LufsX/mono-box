@@ -1,8 +1,7 @@
 #!/system/bin/sh
 
+env_path="/data/adb/box/scripts/box.env"
 service_path="/data/adb/box/scripts/box.service"
-utils_path="/data/adb/box/scripts/box.utils"
-config_path="/data/adb/box/scripts/box.config"
 
 usage() {
     echo "Usage: $0 [toggle|start|stop|restart|status|switch_mode <mode>|switch_tun <true/false>|get_configs|upgrade_core]"
@@ -16,14 +15,13 @@ ensure_service() {
 }
 
 load_runtime() {
-    if [ ! -f "${config_path}" ] || [ ! -f "${utils_path}" ]; then
+    if [ ! -f "${env_path}" ]; then
         echo "Scripts not found"
         exit 1
     fi
 
-    . "${config_path}"
-    clash_api_port="${clash_api_port:-9090}"
-    . "${utils_path}"
+    scripts_dir="$(dirname "${env_path}")"
+    . "${env_path}"
 }
 
 run_toggle() {
@@ -31,7 +29,7 @@ run_toggle() {
     local toggle_tun_target="toggle"
     local toggle_mode_cycle="rule,global,direct"
 
-    if [ -f "$config_path" ] && [ -f "$utils_path" ]; then
+    if [ -f "${env_path}" ]; then
         load_runtime
 
         [ -n "$toggle_action" ] || toggle_action="service"

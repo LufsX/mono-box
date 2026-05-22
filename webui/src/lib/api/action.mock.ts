@@ -1,4 +1,6 @@
-import type { CommandResult, ModuleInfo } from "./action";
+import type { CommandResult, ModuleInfo } from "./clash.types";
+import { parseKeyValueText } from "./config-parser";
+import type { ConfigPort } from "./config-port";
 
 const MOCK_MODULE_PROP = [
   "id=mono_box",
@@ -34,7 +36,6 @@ function ok(stdout = "", stderr = ""): CommandResult {
 }
 
 export async function runActionScript(actionCmd: string): Promise<CommandResult> {
-  // 模拟脚本执行时间
   await new Promise((resolve) => setTimeout(resolve, 1000));
   return ok(`Mock execute: ${actionCmd}`);
 }
@@ -51,34 +52,14 @@ export async function openExternalUrlCommand(url: string): Promise<CommandResult
 }
 
 export async function openExternalUrl(url: string): Promise<void> {
-  await openExternalUrlCommand(url);
+  const result = await openExternalUrlCommand(url);
+  if (result.errno !== 0) {
+    throw new Error("am start failed");
+  }
 }
 
 export async function readModulePropRaw(): Promise<CommandResult> {
   return ok(MOCK_MODULE_PROP);
-}
-
-function parseKeyValueText(content: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  const lines = content.split(/\r?\n/);
-
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-
-    const separatorIndex = line.indexOf("=");
-    if (separatorIndex <= 0) {
-      continue;
-    }
-
-    const key = line.slice(0, separatorIndex).trim();
-    const value = line.slice(separatorIndex + 1).trim();
-    result[key] = value;
-  }
-
-  return result;
 }
 
 export async function getModuleInfo(): Promise<ModuleInfo> {
@@ -94,11 +75,15 @@ export async function getModuleInfo(): Promise<ModuleInfo> {
   };
 }
 
-export async function readBoxConfigRaw(): Promise<CommandResult> {
-  return ok(mockBoxConfig);
+export async function readBoxConfig(): Promise<string> {
+  return mockBoxConfig;
 }
 
-export async function writeBoxConfigRaw(content: string): Promise<CommandResult> {
+export async function writeBoxConfig(content: string): Promise<void> {
   mockBoxConfig = content.replace(/\r\n/g, "\n");
-  return ok("Mock write box.config success");
 }
+
+export const configPortAdapter: ConfigPort = {
+  readBoxConfig,
+  writeBoxConfig,
+};

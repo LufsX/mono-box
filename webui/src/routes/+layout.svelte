@@ -2,20 +2,16 @@
   import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";
-  import TopNav from "$lib/components/TopNav.svelte";
-  import BottomNav from "$lib/components/BottomNav.svelte";
+  import TopNav from "$lib/components/layout/TopNav.svelte";
+  import BottomNav from "$lib/components/layout/BottomNav.svelte";
   import { loadHomeLayoutSettings, initRoundedStore } from "$lib/settings";
-  import * as actionRealApi from "$lib/api/action";
-  import * as actionMockApi from "$lib/api/action.mock";
+  import { actionApi } from "$lib/api";
   import Home from "$lib/pages/Home.svelte";
   import Proxies from "$lib/pages/Proxies.svelte";
   import Settings from "$lib/pages/Settings.svelte";
   import Connections from "$lib/pages/Connections.svelte";
   import Rules from "$lib/pages/Rules.svelte";
   import "./layout.css";
-
-  const isProd = import.meta.env.MODE !== "production";
-  const actionApi = isProd ? actionMockApi : actionRealApi;
 
   // Execute immediately with highest priority
   if (typeof window !== "undefined") {

@@ -1,20 +1,6 @@
 #!/system/bin/sh
 
-export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH:/data/data/com.termux/files/usr/bin"
-
-scripts=$(realpath "$0")
-scripts_dir=$(dirname "${scripts}")
-
-. "${scripts_dir}/box.config"
-
-bin_name="${bin_name:-mihomo}"
-CORE_USER_GROUP="${CORE_USER_GROUP:-root:net_admin}"
-box_path="${box_path:-/data/adb/box}"
-bin_path="${bin_path:-${box_path}/bin/${bin_name}}"
-run_path="${run_path:-${box_path}/run}"
-pid_file="${pid_file:-${run_path}/${bin_name}.pid}"
-
-mkdir -p "${run_path}" "${box_path}/${bin_name}"
+. "$(dirname "$(realpath "$0")")/box.env"
 
 MODULE_DESC_BASE="Use mihomo on Android devices."
 
@@ -69,8 +55,7 @@ update_module_status() {
     esac
 
     local status_desc="${MODULE_DESC_BASE} [${state_text}]"
-    update_module_prop_description "/data/adb/modules/mono_box/module.prop" "${status_desc}"
-    update_module_prop_description "/data/adb/lite_modules/mono_box/module.prop" "${status_desc}"
+    update_module_prop_description "${module_dir}/module.prop" "${status_desc}"
 }
 
 log() {
@@ -166,6 +151,7 @@ start_service() {
 
     update_module_status starting
 
+    mkdir -p "${run_path}" "${box_path}/${bin_name}"
     ensure_binary || {
         update_module_status error
         return 1

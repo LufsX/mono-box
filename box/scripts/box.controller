@@ -1,25 +1,7 @@
 #!/system/bin/sh
 
-export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH:/data/data/com.termux/files/usr/bin"
+. "$(dirname "$(realpath "$0")")/box.env"
 
-module_dir="/data/adb/modules/mono_box"
-[ -n "$(magisk -v | grep lite)" ] && module_dir=/data/adb/lite_modules/mono_box
-
-scripts=$(realpath "$0")
-scripts_dir=$(dirname "${scripts}")
-
-. "${scripts_dir}/box.config"
-
-bin_name="${bin_name:-mihomo}"
-box_path="${box_path:-/data/adb/box}"
-run_path="${run_path:-${box_path}/run}"
-pid_file="${pid_file:-${run_path}/${bin_name}.pid}"
-clash_api_port="${clash_api_port:-9090}"
-
-. "${scripts_dir}/box.utils"
-
-service_path="${scripts_dir}/box.service"
-run_log="${run_path}/run.log"
 last_outbound_file="${run_path}/.lastOutbound"
 last_clash_mode_file="${run_path}/.lastClashMode"
 
@@ -131,27 +113,19 @@ choose_target() {
     return 0
 }
 
-choose_selector_target() {
+choose_policy_target() {
     local network_state="$1"
+    local policy="$2"
     local target
+    local fallback
 
     target=$(choose_target "${network_state}")
     if [ "${network_state}" = "cellular" ] && [ "${target}" = "last" ]; then
-        printf '%s' "${Outbound}"
-        return 0
-    fi
-
-    printf '%s' "${target}"
-    return 0
-}
-
-choose_clash_mode_target() {
-    local network_state="$1"
-    local target
-
-    target=$(choose_target "${network_state}")
-    if [ "${network_state}" = "cellular" ] && [ "${target}" = "last" ]; then
-        printf '%s' "${ClashMode}"
+        case "${policy}" in
+            selector) fallback="${Outbound}" ;;
+            mode) fallback="${ClashMode}" ;;
+        esac
+        printf '%s' "${fallback}"
         return 0
     fi
 
@@ -171,10 +145,10 @@ apply_switch_policy() {
 
     case "${target}" in
         start | on | true)
-            status || start_core
+            status || "${service_path}" start >> /dev/null 2>> "${run_log}"
             ;;
         stop | off | false)
-            status && stop_core
+            status && "${service_path}" stop >> /dev/null 2>> "${run_log}"
             ;;
         *) ;;
     esac
@@ -198,7 +172,7 @@ apply_selector_policy() {
     status || return 0
     [ -n "${select_outbound}" ] || return 0
 
-    target=$(choose_selector_target "${network_state}")
+    target=$(choose_policy_target "${network_state}" "selector")
     [ -n "${target}" ] || return 0
 
     if [ "${network_state}" = "wifi" ]; then
@@ -213,7 +187,7 @@ apply_clash_mode_policy() {
     local target
 
     status || return 0
-    target=$(choose_clash_mode_target "${network_state}")
+    target=$(choose_policy_target "${network_state}" "mode")
     [ -n "${target}" ] || return 0
 
     if [ "${network_state}" = "wifi" ]; then
@@ -268,21 +242,22 @@ handle_network_policy_event() {
 }
 
 main() {
-    local command="$1"
-
-    normalize_ctr_mode
-    ensure_runtime_dir
-
-    if [ "${command}" = "boot" ]; then
-        boot_start
-        return 0
-    fi
-
     local events="$1"
     local monitor_dir="$2"
     local monitor_file="$3"
 
-    [ -z "${events}" ] && return 0
+    normalize_ctr_mode
+    ensure_runtime_dir
+
+    case "${events}" in
+        boot)
+            boot_start
+            return 0
+            ;;
+        "")
+            return 0
+            ;;
+    esac
 
     handle_module_toggle_event "${events}" "${monitor_file}"
     handle_network_policy_event "${events}" "${monitor_dir}" "${monitor_file}"
