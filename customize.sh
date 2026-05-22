@@ -17,27 +17,41 @@ choose_with_volume() {
     local prompt="$1"
     local up_label="$2"
     local down_label="$3"
+    local timeout_sec="${4:-10}"
+    local event pid waiter
 
-    ui_print "- ${prompt}"
+    ui_print "- ${prompt} (${timeout_sec}s timeout, auto-skip)"
     ui_print "    Vol+ : ${up_label}"
     ui_print "    Vol- : ${down_label}"
 
-    while true; do
-        local event
-        event=$(/system/bin/getevent -qlc 1 2> /dev/null)
+    event=$(
+        /system/bin/getevent -qlc 1 &
+        pid=$!
+        (sleep "${timeout_sec}"; kill "${pid}" 2>/dev/null) &
+        waiter=$!
+        wait "${pid}" 2>/dev/null
+        kill "${waiter}" 2>/dev/null
+        wait "${waiter}" 2>/dev/null
+    )
 
-        if echo "${event}" | grep -q "KEY_VOLUMEUP.*DOWN"; then
-            wait_key_release "KEY_VOLUMEUP"
-            sleep 0.15
-            return 0
-        fi
+    if [ -z "${event}" ]; then
+        ui_print "    No input, skipping..."
+        return 1
+    fi
 
-        if echo "${event}" | grep -q "KEY_VOLUMEDOWN.*DOWN"; then
-            wait_key_release "KEY_VOLUMEDOWN"
-            sleep 0.15
-            return 1
-        fi
-    done
+    if echo "${event}" | grep -q "KEY_VOLUMEUP.*DOWN"; then
+        wait_key_release "KEY_VOLUMEUP"
+        sleep 0.15
+        return 0
+    fi
+
+    if echo "${event}" | grep -q "KEY_VOLUMEDOWN.*DOWN"; then
+        wait_key_release "KEY_VOLUMEDOWN"
+        sleep 0.15
+        return 1
+    fi
+
+    return 1
 }
 
 wrap_github_url() {
