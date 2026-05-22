@@ -18,39 +18,41 @@ choose_with_volume() {
     local up_label="$2"
     local down_label="$3"
     local timeout_sec="${4:-10}"
-    local event pid waiter
+    local deadline event pid waiter
 
     ui_print "- ${prompt} (${timeout_sec}s timeout, auto-skip)"
     ui_print "    Vol+ : ${up_label}"
     ui_print "    Vol- : ${down_label}"
 
-    event=$(
-        /system/bin/getevent -qlc 1 &
-        pid=$!
-        (sleep "${timeout_sec}"; kill "${pid}" 2>/dev/null) &
-        waiter=$!
-        wait "${pid}" 2>/dev/null
-        kill "${waiter}" 2>/dev/null
-        wait "${waiter}" 2>/dev/null
-    )
+    deadline=$(($(date +%s) + timeout_sec))
 
-    if [ -z "${event}" ]; then
-        ui_print "    No input, skipping..."
-        return 1
-    fi
+    while [ "$(date +%s)" -lt "${deadline}" ] 2>/dev/null; do
+        event=$(
+            /system/bin/getevent -qlc 1 &
+            pid=$!
+            (sleep 2; kill "${pid}" 2>/dev/null) &
+            waiter=$!
+            wait "${pid}" 2>/dev/null
+            kill "${waiter}" 2>/dev/null
+            wait "${waiter}" 2>/dev/null
+        )
 
-    if echo "${event}" | grep -q "KEY_VOLUMEUP.*DOWN"; then
-        wait_key_release "KEY_VOLUMEUP"
-        sleep 0.15
-        return 0
-    fi
+        [ -z "${event}" ] && continue
 
-    if echo "${event}" | grep -q "KEY_VOLUMEDOWN.*DOWN"; then
-        wait_key_release "KEY_VOLUMEDOWN"
-        sleep 0.15
-        return 1
-    fi
+        if printf "%s\n" "${event}" | grep -q "KEY_VOLUMEUP.*DOWN"; then
+            wait_key_release "KEY_VOLUMEUP"
+            sleep 0.15
+            return 0
+        fi
 
+        if printf "%s\n" "${event}" | grep -q "KEY_VOLUMEDOWN.*DOWN"; then
+            wait_key_release "KEY_VOLUMEDOWN"
+            sleep 0.15
+            return 1
+        fi
+    done
+
+    ui_print "    No input, skipping..."
     return 1
 }
 
@@ -79,7 +81,7 @@ download_file_with_progress() {
     header=$(curl -fsSLI --connect-timeout 15 --retry 1 "${source_url}" 2> /dev/null) || true
     total_bytes=$(printf "%s\n" "${header}" | tr -d '\r' | awk 'BEGIN{IGNORECASE=1} /^Content-Length:/ {print $2; exit}')
 
-    curl -fL --connect-timeout 20 --retry 3 --retry-delay 2 --retry-all-errors -o "${output_file}" "${source_url}" > /dev/null 2>&1 &
+    curl -fL --connect-timeout 20 --retry 3 --retry-delay 2 --retry-all-errors -o "${output_file}" "${source_url}" 2>&1 &
     local curl_pid=$!
 
     while kill -0 "${curl_pid}" > /dev/null 2>&1; do
@@ -138,6 +140,7 @@ download_asset() {
     local primary_url
 
     primary_url="$(wrap_github_url "${origin_url}")"
+    ui_print "    Download URL: ${primary_url}"
     download_file_with_progress "${primary_url}" "${output_file}"
 }
 
@@ -189,7 +192,10 @@ extract_urls_from_release_api() {
     local api_url="$1"
     local response
 
-    response=$(curl -fsSL --connect-timeout 20 --retry 2 "$(wrap_github_url "${api_url}")") || return 1
+    response=$(curl -fsSL --connect-timeout 20 --retry 2 "$(wrap_github_url "${api_url}")" 2>/dev/null) || {
+        ui_print "    Error: curl failed for: $(wrap_github_url "${api_url}")"
+        return 1
+    }
 
     printf "%s\n" "${response}" \
         | grep -o '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' \
@@ -244,37 +250,89 @@ install_downloaded_core() {
     local extracted
 
     target="$(core_target_path)"
-    mkdir -p "$(dirname "${target}")" > /dev/null 2>&1 || return 1
+
+    if [ ! -s "${asset_file}" ]; then
+        ui_print "    Error: downloaded file is empty or missing: ${asset_file}"
+        return 1
+    fi
+
+    if pidof mihomo > /dev/null 2>&1 || busybox pidof mihomo > /dev/null 2>&1; then
+        ui_print "    Stopping running mihomo process..."
+        killall mihomo 2>/dev/null
+        kill $(pidof mihomo 2>/dev/null) 2>/dev/null
+        kill $(busybox pidof mihomo 2>/dev/null) 2>/dev/null
+        sleep 1
+    fi
+
+    mkdir -p "$(dirname "${target}")" > /dev/null 2>&1 || {
+        ui_print "    Error: cannot create directory: $(dirname "${target}")"
+        return 1
+    }
 
     case "${asset_name}" in
         *.tar.gz | *.tgz)
-            tar -xzf "${asset_file}" -C "${workdir}" > /dev/null 2>&1 || return 1
+            ui_print "    Extracting tar.gz..."
+            tar -xzf "${asset_file}" -C "${workdir}" 2>&1 || {
+                ui_print "    Error: tar extraction failed"
+                return 1
+            }
             extracted=$(find "${workdir}" -type f -name 'mihomo*' | grep -Eiv '\.(txt|md|json)$' | head -n 1)
-            [ -n "${extracted}" ] || return 1
+            if [ -z "${extracted}" ]; then
+                ui_print "    Error: mihomo binary not found in archive"
+                ui_print "    Archive contents:"
+                find "${workdir}" -type f | head -10 | while read -r f; do ui_print "      $f"; done
+                return 1
+            fi
+            ui_print "    Found binary: ${extracted}"
             cat "${extracted}" > "${target}"
             ;;
         *.gz)
-            gzip -dc "${asset_file}" > "${target}" 2> /dev/null || gunzip -c "${asset_file}" > "${target}" 2> /dev/null || return 1
+            ui_print "    Extracting gz..."
+            gzip -dc "${asset_file}" > "${target}" 2>&1 || gunzip -c "${asset_file}" > "${target}" 2>&1 || {
+                ui_print "    Error: gzip extraction failed"
+                return 1
+            }
             ;;
         *.zip)
+            ui_print "    Extracting zip..."
             if command -v unzip > /dev/null 2>&1; then
-                unzip -qo "${asset_file}" -d "${workdir}" > /dev/null 2>&1 || return 1
+                unzip -qo "${asset_file}" -d "${workdir}" 2>&1 || {
+                    ui_print "    Error: unzip failed"
+                    return 1
+                }
             elif command -v busybox > /dev/null 2>&1; then
-                busybox unzip -qo "${asset_file}" -d "${workdir}" > /dev/null 2>&1 || return 1
+                busybox unzip -qo "${asset_file}" -d "${workdir}" 2>&1 || {
+                    ui_print "    Error: busybox unzip failed"
+                    return 1
+                }
             else
+                ui_print "    Error: no unzip command available"
                 return 1
             fi
             extracted=$(find "${workdir}" -type f -name 'mihomo*' | grep -Eiv '\.(txt|md|json)$' | head -n 1)
-            [ -n "${extracted}" ] || return 1
+            if [ -z "${extracted}" ]; then
+                ui_print "    Error: mihomo binary not found in archive"
+                ui_print "    Archive contents:"
+                find "${workdir}" -type f | head -10 | while read -r f; do ui_print "      $f"; done
+                return 1
+            fi
+            ui_print "    Found binary: ${extracted}"
             cat "${extracted}" > "${target}"
             ;;
         *)
+            ui_print "    Copying raw binary..."
             cat "${asset_file}" > "${target}"
             ;;
     esac
 
     chmod 0700 "${target}" > /dev/null 2>&1 || true
-    return 0
+
+    if [ -s "${target}" ]; then
+        return 0
+    else
+        ui_print "    Error: installed file is empty"
+        return 1
+    fi
 }
 
 download_core_by_choice() {
@@ -288,28 +346,21 @@ download_core_by_choice() {
     local asset_name=""
     local download_file=""
 
-    ui_print "- Core download plan"
-    ui_print "    Selected core type : ${core_type}"
-    ui_print "  - [1/4] Preparing download environment"
+    ui_print "- Downloading ${core_type}"
 
     if ! command -v curl > /dev/null 2>&1; then
-        ui_print "    Error: curl is missing, skip core download."
+        ui_print "    Error: curl is missing"
         return 1
     fi
 
     target="$(core_target_path)"
     if [ -s "${target}" ] && [ "${allow_overwrite}" != "true" ]; then
-        ui_print "    Core already exists, skip download: ${target}"
+        ui_print "    Core already exists, skip download"
         return 0
     fi
 
-    if [ -s "${target}" ] && [ "${allow_overwrite}" = "true" ]; then
-        ui_print "    Core exists and will be overwritten: ${target}"
-    fi
-
     detect_arch
-    ui_print "    Device ABI : ${ARCH_NAME}"
-    ui_print "  - [2/4] Fetching release asset list"
+    ui_print "    Device ABI: ${ARCH_NAME}"
 
     if [ "${core_type}" = "mihomo" ]; then
         urls=$(extract_urls_from_release_api "https://api.github.com/repos/MetaCubeX/mihomo/releases") || return 1
@@ -320,7 +371,7 @@ download_core_by_choice() {
     fi
 
     if [ -z "${download_url}" ]; then
-        ui_print "    Error: no matching ${core_type} asset found for ${ARCH_NAME}."
+        ui_print "    Error: no matching asset for ${ARCH_NAME}"
         return 1
     fi
 
@@ -329,14 +380,11 @@ download_core_by_choice() {
     asset_name="${asset_name%%\?*}"
     download_file="${temp_dir}/${asset_name}"
 
-    ui_print "  - [3/4] Downloading core asset"
-    ui_print "    Asset: ${asset_name}"
     download_asset "${download_url}" "${download_file}" || {
         rm -rf "${temp_dir}" > /dev/null 2>&1
         return 1
     }
 
-    ui_print "  - [4/4] Installing core binary"
     install_downloaded_core "${download_file}" "${asset_name}" "${temp_dir}" || {
         rm -rf "${temp_dir}" > /dev/null 2>&1
         return 1
@@ -354,46 +402,31 @@ maybe_download_core_with_volume() {
 
     target="$(core_target_path)"
     if [ -s "${target}" ]; then
-        ui_print "- Core status"
-        ui_print "    Existing core: ${target}"
-
         if choose_with_volume "Core exists, overwrite it?" "Yes" "No"; then
             allow_overwrite="true"
-            ui_print "    Selected: overwrite enabled"
         else
-            ui_print "    Selected: keep existing core, skip download"
             return 0
         fi
     else
-        if choose_with_volume "Download core now?" "Yes" "No"; then
-            ui_print "    Selected: start core download"
-        else
-            ui_print "    Selected: skip core download"
+        if ! choose_with_volume "Download core now?" "Yes" "No"; then
             return 0
         fi
     fi
 
     if choose_with_volume "Use GitHub acceleration?" "Yes" "No"; then
         USE_GITHUB_PROXY="true"
-        ui_print "    Selected: GitHub acceleration enabled"
     else
         USE_GITHUB_PROXY="false"
-        ui_print "    Selected: GitHub acceleration disabled"
     fi
 
     if choose_with_volume "Choose core type" "mihomo" "mihomo_smart"; then
         core_type="mihomo"
-        ui_print "    Selected core type: mihomo"
     else
         core_type="mihomo_smart"
-        ui_print "    Selected core type: mihomo_smart"
     fi
 
-    if download_core_by_choice "${core_type}" "${allow_overwrite}"; then
-        ui_print "- Core download finished"
-    else
-        ui_print "- Core download failed"
-        ui_print "    Please download core manually later."
+    if ! download_core_by_choice "${core_type}" "${allow_overwrite}"; then
+        ui_print "- Core download failed, please download manually later."
     fi
 }
 
