@@ -96,12 +96,7 @@ export function providerUsableNodes(providers: ClashProxyProviderMap | null, lat
   return nodes.filter((item) => readNodeLatency(latencies, item.name) > 0).length;
 }
 
-export function resolveTestUrl(
-  proxies: ClashProxyMap | null,
-  providers: ClashProxyProviderMap | null,
-  proxyTestUrl: string,
-  groupName?: string,
-): string {
+export function resolveTestUrl(proxies: ClashProxyMap | null, providers: ClashProxyProviderMap | null, proxyTestUrl: string, groupName?: string): string {
   const globalUrl = proxyTestUrl.trim() || DEFAULT_TEST_URL;
   if (!groupName) return globalUrl;
 

@@ -30,6 +30,8 @@ export { ALL_PROXY_MODES, buildToggleModeOrder, createDefaultBoxConfigFormValues
 export type {
   ClashApiPort,
   ClashConfig,
+  ClashLogEntry,
+  ClashLogLevel,
   MemoryData,
   TrafficData,
   ClashProxyHistory,

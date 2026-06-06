@@ -6,6 +6,17 @@ import type { CommandResult, ModuleInfo } from "./clash.types";
 
 export type { CommandResult, ModuleInfo } from "./clash.types";
 
+export interface LogFileInfo {
+  path: string;
+  size: number;
+}
+
+export interface LogSizeReport {
+  files: LogFileInfo[];
+  totalBytes: number;
+  count: number;
+}
+
 const MODULE_ROOT = "/data/adb/modules/mono_box";
 const BOX_ROOT = "/data/adb/box";
 const BOX_CONFIG_PATH = "/data/adb/box/scripts/box.config";
@@ -32,6 +43,66 @@ export async function runActionScript(actionCmd: string): Promise<CommandResult>
   const command = `su -c '${MODULE_ROOT}/action.sh ${actionCmd}'`;
   const result = await exec(command, { cwd: MODULE_ROOT });
   return normalizeResult(result);
+}
+
+function parsePositiveInteger(value: string | undefined): number {
+  if (!value) return 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function parseLogSizeReport(stdout: string): LogSizeReport {
+  const files: LogFileInfo[] = [];
+  let totalBytes = 0;
+  let count = 0;
+  let hasTotal = false;
+
+  for (const rawLine of stdout.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const parts = line.split("\t");
+    const kind = parts[0];
+
+    if (kind === "file") {
+      const size = parsePositiveInteger(parts[1]);
+      const path = parts.slice(2).join("\t");
+      if (!path) continue;
+      files.push({ path, size });
+      continue;
+    }
+
+    if (kind === "total") {
+      totalBytes = parsePositiveInteger(parts[1]);
+      count = parsePositiveInteger(parts[2]);
+      hasTotal = true;
+    }
+  }
+
+  if (!hasTotal) {
+    totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    count = files.length;
+  }
+
+  return { files, totalBytes, count };
+}
+
+export async function getLogSizeReport(): Promise<LogSizeReport> {
+  const result = await runActionScript("logs_size");
+  if (result.errno !== 0) {
+    throw buildExecError("Read log size failed", result);
+  }
+
+  return parseLogSizeReport(result.stdout);
+}
+
+export async function clearLogFiles(): Promise<CommandResult> {
+  const result = await runActionScript("clear_logs");
+  if (result.errno !== 0) {
+    throw buildExecError("Clear logs failed", result);
+  }
+
+  return result;
 }
 
 export async function setEdgeToEdge(enabled: boolean): Promise<void> {

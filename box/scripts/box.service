@@ -218,6 +218,82 @@ status_service() {
     return 1
 }
 
+list_log_files() {
+    local core_log_dir="${box_path}/${bin_name}"
+
+    [ -d "${core_log_dir}" ] || return 0
+    find "${core_log_dir}" -type f -name "${bin_name}_*.log" 2> /dev/null
+}
+
+log_file_size() {
+    local file="$1"
+    local size
+
+    size="$(wc -c < "${file}" 2> /dev/null | tr -d '[:space:]')"
+    case "${size}" in
+        "" | *[!0-9]*)
+            size=0
+            ;;
+    esac
+
+    printf "%s" "${size}"
+}
+
+logs_size_service() {
+    local tmp_file
+    local file
+    local size
+    local total=0
+    local count=0
+
+    mkdir -p "${run_path}"
+    tmp_file="${run_path}/.logs_size.$$"
+    list_log_files > "${tmp_file}" 2> /dev/null || true
+
+    while IFS= read -r file; do
+        [ -f "${file}" ] || continue
+        size="$(log_file_size "${file}")"
+        total=$((total + size))
+        count=$((count + 1))
+        printf "file\t%s\t%s\n" "${size}" "${file}"
+    done < "${tmp_file}"
+
+    printf "total\t%s\t%s\n" "${total}" "${count}"
+    rm -f "${tmp_file}" > /dev/null 2>&1
+}
+
+clear_logs_service() {
+    local tmp_file
+    local file
+    local size
+    local total=0
+    local count=0
+    local failed=0
+
+    mkdir -p "${run_path}"
+    tmp_file="${run_path}/.clear_logs.$$"
+    list_log_files > "${tmp_file}" 2> /dev/null || true
+
+    while IFS= read -r file; do
+        [ -f "${file}" ] || continue
+        size="$(log_file_size "${file}")"
+        total=$((total + size))
+        count=$((count + 1))
+
+        if rm -f "${file}" 2> /dev/null; then
+            printf "file\tcleared\t%s\t%s\n" "${size}" "${file}"
+        else
+            failed=$((failed + 1))
+            printf "file\tfailed\t%s\t%s\n" "${size}" "${file}"
+        fi
+    done < "${tmp_file}"
+
+    printf "cleared\t%s\t%s\t%s\n" "${total}" "${count}" "${failed}"
+    rm -f "${tmp_file}" > /dev/null 2>&1
+
+    [ "${failed}" -eq 0 ]
+}
+
 case "$1" in
     start)
         start_service
@@ -233,8 +309,14 @@ case "$1" in
     status)
         status_service
         ;;
+    logs_size | log_size)
+        logs_size_service
+        ;;
+    clear_logs | clean_logs)
+        clear_logs_service
+        ;;
     *)
-        log Error "$0 $1 usage: $0 {start|stop|restart|status}"
+        log Error "$0 $1 usage: $0 {start|stop|restart|status|logs_size|clear_logs}"
         exit 1
         ;;
 esac

@@ -1,8 +1,8 @@
-import { Activity, House, ListChecks, Settings, Waypoints } from "@lucide/svelte";
+import { Activity, House, ListChecks, ScrollText, Settings, Waypoints } from "@lucide/svelte";
 
 export type HomeModuleId = "tun" | "proxy" | "stats" | "service" | "panel" | "core" | "log";
 
-export type BottomTabId = "home" | "proxies" | "connections" | "rules" | "settings";
+export type BottomTabId = "home" | "proxies" | "connections" | "rules" | "logs" | "settings";
 
 export type BottomTabMeta = {
   href: string;
@@ -21,6 +21,7 @@ export const BOTTOM_TAB_META: Record<BottomTabId, BottomTabMeta> = {
   proxies: { href: "#/proxies", label: "代理", icon: Waypoints },
   connections: { href: "#/connections", label: "连接", icon: Activity },
   rules: { href: "#/rules", label: "规则", icon: ListChecks },
+  logs: { href: "#/logs", label: "日志", icon: ScrollText },
   settings: { href: "#/settings", label: "设置", icon: Settings, fixed: true },
 };
 
@@ -33,7 +34,7 @@ export const HOME_MODULE_META: Record<HomeModuleId, HomeModuleMeta> = {
   service: { label: "快速控制指令" },
   panel: { label: "面板快捷跳转" },
   core: { label: "核心状态与端口", requiresCore: true },
-  log: { label: "Terminal Logs" },
+  log: { label: "WebUI 操作输出" },
 };
 
 export const ALL_HOME_MODULES = Object.keys(HOME_MODULE_META) as HomeModuleId[];

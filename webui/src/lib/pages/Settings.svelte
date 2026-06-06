@@ -232,16 +232,7 @@
 
 <div class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
   <CollapsibleSection title="box.config 配置" controls="box-config-settings" bind:open={boxConfigOpen} onchange={(open) => saveSettingsSectionState({ boxConfig: open })}>
-    <BoxConfigSettings
-      bind:boxConfig
-      {boxConfigSaved}
-      {boxConfigLoading}
-      bind:boxConfigError
-      {clashApiChecking}
-      {clashApiCheckOk}
-      onsave={saveBoxConfig}
-      oncheckapi={checkClashApiVersion}
-    />
+    <BoxConfigSettings bind:boxConfig {boxConfigSaved} {boxConfigLoading} bind:boxConfigError {clashApiChecking} {clashApiCheckOk} onsave={saveBoxConfig} oncheckapi={checkClashApiVersion} />
   </CollapsibleSection>
 
   <CollapsibleSection title="WEB UI 设置" controls="web-ui-settings" delay={50} bind:open={webUiSettingsOpen} onchange={(open) => saveSettingsSectionState({ webUi: open })}>

@@ -13,11 +13,15 @@ import type {
   ClashConfigs,
   UpgradeResult,
   ClashProxyDetail,
+  ClashLogEntry,
+  ClashLogLevel,
 } from "./clash.types";
 
 export type {
   ClashApiPort,
   ClashConfig,
+  ClashLogEntry,
+  ClashLogLevel,
   MemoryData,
   TrafficData,
   ClashProxyHistory,
@@ -221,6 +225,29 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
   ];
 
   const mockDisabledRuleIndexes = new Set<number>();
+  const mockLogSamples: ClashLogEntry[] = [
+    {
+      type: "info",
+      payload: "[TCP] 198.18.0.1:55231(com.android.chrome, uid=10142) --> github.com:443 match DomainSuffix(github.com) using Proxy[HK-A]",
+    },
+    {
+      type: "info",
+      payload: "[UDP] 198.18.0.1:44982(com.google.android.gms, uid=10120) --> 8.8.8.8:53 match GeoIP(CN) using DIRECT",
+    },
+    {
+      type: "warning",
+      payload: "[Provider] Provider-A health check timeout: JP-A",
+    },
+    {
+      type: "debug",
+      payload: "[DNS] cache hit: api.github.com --> 20.205.243.166",
+    },
+    {
+      type: "error",
+      payload: "[TCP] dial Proxy[US-A] error: connect timeout",
+    },
+  ];
+  let mockLogIndex = 0;
 
   async function getConfigs(): Promise<ClashConfigs> {
     const content = await configPort.readBoxConfig();
@@ -290,6 +317,23 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
 
     socket.onmessage = (event) => {
       const parsed = JSON.parse(event.data) as import("./clash.types").TrafficData;
+      onMessage(parsed);
+    };
+
+    return socket as unknown as WebSocket;
+  }
+
+  async function createLogsWebSocket(level: ClashLogLevel | undefined, onMessage: (data: ClashLogEntry) => void, _onError?: (error: Event) => void): Promise<WebSocket> {
+    const socket = new MockSocket(() => {
+      const pool = level ? mockLogSamples.filter((entry) => entry.type === level) : mockLogSamples;
+      const source = pool.length > 0 ? pool : mockLogSamples;
+      const entry = source[mockLogIndex % source.length];
+      mockLogIndex += 1;
+      return entry;
+    }, 900);
+
+    socket.onmessage = (event) => {
+      const parsed = JSON.parse(event.data) as ClashLogEntry;
       onMessage(parsed);
     };
 
@@ -479,6 +523,7 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
     upgradeCore,
     createMemoryWebSocket,
     createTrafficWebSocket,
+    createLogsWebSocket,
     setOutbound,
     getProxies,
     testProxyDelay,

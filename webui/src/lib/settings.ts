@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS: HomeLayoutSettings = {
   edgeToEdge: true,
   rounded: false,
   bottomTabOrder: [...ALL_BOTTOM_TABS],
-  bottomTabHidden: [],
+  bottomTabHidden: ["logs"],
 };
 
 export function getDefaultHomeLayoutSettings(): HomeLayoutSettings {
@@ -105,7 +105,11 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
   const bottomTabOrder = tabOrderSet.size ? [...tabOrderSet] : [...ALL_BOTTOM_TABS];
   for (const tabId of ALL_BOTTOM_TABS) {
     if (!bottomTabOrder.includes(tabId)) {
-      bottomTabOrder.push(tabId);
+      if (tabId === "logs" && bottomTabOrder.includes("settings")) {
+        bottomTabOrder.splice(bottomTabOrder.indexOf("settings"), 0, tabId);
+      } else {
+        bottomTabOrder.push(tabId);
+      }
     }
   }
 
@@ -124,6 +128,7 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     if (!proxiesEnabled) bottomTabHiddenSet.add("proxies");
     if (!connectionsEnabled) bottomTabHiddenSet.add("connections");
     if (!rulesEnabled) bottomTabHiddenSet.add("rules");
+    bottomTabHiddenSet.add("logs");
   }
 
   for (const tabId of ALL_BOTTOM_TABS) {
@@ -186,7 +191,7 @@ roundedStore.subscribe((value) => {
   }
 });
 export const bottomTabOrderStore = writable<BottomTabId[]>([...ALL_BOTTOM_TABS]);
-export const bottomTabHiddenStore = writable<BottomTabId[]>(["rules"]);
+export const bottomTabHiddenStore = writable<BottomTabId[]>(["logs"]);
 
 export function initRoundedStore(): void {
   const settings = loadHomeLayoutSettings();

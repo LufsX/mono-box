@@ -2,6 +2,17 @@ import type { CommandResult, ModuleInfo } from "./clash.types";
 import { parseKeyValueText } from "./config-parser";
 import type { ConfigPort } from "./config-port";
 
+export interface LogFileInfo {
+  path: string;
+  size: number;
+}
+
+export interface LogSizeReport {
+  files: LogFileInfo[];
+  totalBytes: number;
+  count: number;
+}
+
 const MOCK_MODULE_PROP = [
   "id=mono_box",
   "name=Mono Box",
@@ -11,6 +22,11 @@ const MOCK_MODULE_PROP = [
   "description=Use mihomo on Android devices.",
   "updateJson=https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json",
 ].join("\n");
+
+let mockLogFiles: LogFileInfo[] = [
+  { path: "/data/adb/box/mihomo/mihomo_202606061015.log", size: 420 * 1024 },
+  { path: "/data/adb/box/mihomo/mihomo_202606061030.log", size: 768 * 1024 },
+];
 
 let mockBoxConfig = [
   'bin_name="mihomo"',
@@ -37,7 +53,35 @@ function ok(stdout = "", stderr = ""): CommandResult {
 
 export async function runActionScript(actionCmd: string): Promise<CommandResult> {
   await new Promise((resolve) => setTimeout(resolve, 1000));
+  if (actionCmd === "logs_size") {
+    const lines = mockLogFiles.map((file) => `file\t${file.size}\t${file.path}`);
+    const totalBytes = mockLogFiles.reduce((sum, file) => sum + file.size, 0);
+    lines.push(`total\t${totalBytes}\t${mockLogFiles.length}`);
+    return ok(lines.join("\n"));
+  }
+
+  if (actionCmd === "clear_logs") {
+    const totalBytes = mockLogFiles.reduce((sum, file) => sum + file.size, 0);
+    const count = mockLogFiles.length;
+    mockLogFiles = [];
+    return ok(`cleared\t${totalBytes}\t${count}\t0`);
+  }
+
   return ok(`Mock execute: ${actionCmd}`);
+}
+
+export async function getLogSizeReport(): Promise<LogSizeReport> {
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  const files = mockLogFiles.map((file) => ({ ...file }));
+  return {
+    files,
+    totalBytes: files.reduce((sum, file) => sum + file.size, 0),
+    count: files.length,
+  };
+}
+
+export async function clearLogFiles(): Promise<CommandResult> {
+  return runActionScript("clear_logs");
 }
 
 export async function setEdgeToEdge(_enabled: boolean): Promise<void> {

@@ -17,11 +17,15 @@ import type {
   UpgradeResult,
   ClashProxyDetail,
   CoreStatusResult,
+  ClashLogEntry,
+  ClashLogLevel,
 } from "./clash.types";
 
 export type {
   ClashApiPort,
   ClashConfig,
+  ClashLogEntry,
+  ClashLogLevel,
   MemoryData,
   TrafficData,
   ClashProxyHistory,
@@ -168,8 +172,9 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
   function createClashWebSocket(path: string, onMessage: (data: unknown) => void, onError?: (error: Event) => void): Promise<WebSocket> {
     return (async () => {
       const config = await getClashConfig();
-      const token = config.secret || DEFAULT_WS_TOKEN;
-      const url = `ws://127.0.0.1:${config.port}${path}?token=${token}`;
+      const token = encodeURIComponent(config.secret || DEFAULT_WS_TOKEN);
+      const separator = path.includes("?") ? "&" : "?";
+      const url = `ws://127.0.0.1:${config.port}${path}${separator}token=${token}`;
 
       const ws = new WebSocket(url);
 
@@ -197,6 +202,11 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
 
   async function createTrafficWebSocket(onMessage: (data: TrafficData) => void, onError?: (error: Event) => void): Promise<WebSocket> {
     return createClashWebSocket("/traffic", onMessage as (data: unknown) => void, onError);
+  }
+
+  async function createLogsWebSocket(level: ClashLogLevel | undefined, onMessage: (data: ClashLogEntry) => void, onError?: (error: Event) => void): Promise<WebSocket> {
+    const suffix = level ? `?level=${encodeURIComponent(level)}` : "";
+    return createClashWebSocket(`/logs${suffix}`, onMessage as (data: unknown) => void, onError);
   }
 
   async function setOutbound(selector: string, outbound: string): Promise<void> {
@@ -284,6 +294,7 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
     upgradeCore,
     createMemoryWebSocket,
     createTrafficWebSocket,
+    createLogsWebSocket,
     setOutbound,
     getProxies,
     testProxyDelay,

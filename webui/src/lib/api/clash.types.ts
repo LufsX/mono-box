@@ -17,6 +17,13 @@ export interface TrafficData {
   downTotal: number;
 }
 
+export type ClashLogLevel = "debug" | "info" | "warning" | "error";
+
+export interface ClashLogEntry {
+  type: ClashLogLevel | string;
+  payload: string;
+}
+
 export interface ClashProxyHistory {
   time: string;
   delay: number;
@@ -192,6 +199,7 @@ export interface ClashApiPort {
   upgradeCore(): Promise<UpgradeResult>;
   createMemoryWebSocket(onMessage: (data: MemoryData) => void, onError?: (error: Event) => void): Promise<WebSocket>;
   createTrafficWebSocket(onMessage: (data: TrafficData) => void, onError?: (error: Event) => void): Promise<WebSocket>;
+  createLogsWebSocket(level: ClashLogLevel | undefined, onMessage: (data: ClashLogEntry) => void, onError?: (error: Event) => void): Promise<WebSocket>;
   setOutbound(selector: string, outbound: string): Promise<void>;
   getProxies(): Promise<ClashProxyMap>;
   testProxyDelay(name: string, options?: { url?: string; timeout?: number }): Promise<number>;

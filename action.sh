@@ -4,7 +4,7 @@ env_path="/data/adb/box/scripts/box.env"
 service_path="/data/adb/box/scripts/box.service"
 
 usage() {
-    echo "Usage: $0 [toggle|start|stop|restart|status|switch_mode <mode>|switch_tun <true/false>|get_configs|upgrade_core]"
+    echo "Usage: $0 [toggle|start|stop|restart|status|logs_size|clear_logs|switch_mode <mode>|switch_tun <true/false>|get_configs|upgrade_core]"
 }
 
 ensure_service() {
@@ -166,7 +166,7 @@ case "$1" in
         ensure_service
         run_toggle
         ;;
-    start | stop | restart | status)
+    start | stop | restart | status | logs_size | log_size | clear_logs | clean_logs)
         ensure_service
         "${service_path}" "$1"
         ;;
