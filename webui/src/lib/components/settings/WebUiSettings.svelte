@@ -134,7 +134,7 @@
         </div>
       </div>
     {/each}
-    <span class="text-xs text-slate-500 dark:text-slate-400">首页与设置固定显示；规则禁用为临时操作，重启后失效</span>
+    <span class="text-xs text-slate-500 dark:text-slate-400">设置 TAB 栏固定显示</span>
   </div>
 
   <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>
