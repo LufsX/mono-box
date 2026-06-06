@@ -1,10 +1,7 @@
 import { writable } from "svelte/store";
+import { ALL_BOTTOM_TABS, ALL_HOME_MODULES, isFixedBottomTab, type BottomTabId, type HomeModuleId } from "./app-registry";
 
-export type HomeModuleId = "tun" | "proxy" | "stats" | "service" | "panel" | "core" | "log";
-
-export type BottomTabId = "home" | "proxies" | "connections" | "rules" | "settings";
-
-export const ALL_BOTTOM_TABS: BottomTabId[] = ["home", "proxies", "connections", "rules", "settings"];
+export { ALL_BOTTOM_TABS, ALL_HOME_MODULES, isFixedBottomTab, type BottomTabId, type HomeModuleId } from "./app-registry";
 
 export interface HomeLayoutSettings {
   version: 1;
@@ -19,8 +16,6 @@ export interface HomeLayoutSettings {
 }
 
 const STORAGE_KEY = "mono-box.home-layout";
-
-export const ALL_HOME_MODULES: HomeModuleId[] = ["tun", "proxy", "stats", "service", "panel", "core", "log"];
 
 const DEFAULT_SETTINGS: HomeLayoutSettings = {
   version: 1,
@@ -131,7 +126,11 @@ export function normalizeHomeLayoutSettings(input: unknown): HomeLayoutSettings 
     if (!rulesEnabled) bottomTabHiddenSet.add("rules");
   }
 
-  bottomTabHiddenSet.delete("settings");
+  for (const tabId of ALL_BOTTOM_TABS) {
+    if (isFixedBottomTab(tabId)) {
+      bottomTabHiddenSet.delete(tabId);
+    }
+  }
 
   return {
     version: 1,

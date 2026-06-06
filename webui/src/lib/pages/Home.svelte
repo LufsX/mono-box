@@ -14,6 +14,7 @@
   import KernelAuthNotice from "$lib/components/shared/KernelAuthNotice.svelte";
   import { ExternalLink } from "@lucide/svelte";
   import { loadHomeLayoutSettings, type HomeModuleId } from "$lib/settings";
+  import { isCoreBackedHomeModule } from "$lib/app-registry";
 
   let coreStatus = $state<CoreStatusResult | null>(null);
   let startingFromNotice = $state(false);
@@ -100,7 +101,7 @@
   function isModuleRenderable(moduleId: HomeModuleId): boolean {
     if (!isModuleVisible(moduleId)) return false;
 
-    if (["tun", "proxy", "stats", "core"].includes(moduleId)) {
+    if (isCoreBackedHomeModule(moduleId)) {
       return coreStatus?.ok !== false;
     }
 

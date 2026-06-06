@@ -48,3 +48,5 @@ export function createBoxConfigAccessor(configPort: ConfigPort) {
     updateBoxConfigValues,
   };
 }
+
+export type BoxConfigAccessor = ReturnType<typeof createBoxConfigAccessor>;

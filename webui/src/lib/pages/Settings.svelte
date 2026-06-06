@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { clashApi, actionApi, getBoxConfigRaw, parseBoxConfig, updateBoxConfigValues } from "$lib/api";
-  import type { ControlMode, ProxyMode } from "$lib/api";
+  import { clashApi, actionApi, createDefaultBoxConfigFormValues, getBoxConfigForm, saveBoxConfigForm } from "$lib/api";
+  import type { BoxConfigFormValues } from "$lib/api";
   import { getDefaultHomeLayoutSettings, loadHomeLayoutSettings, saveHomeLayoutSettings } from "$lib/settings";
   import AboutSettings from "$lib/components/settings/AboutSettings.svelte";
   import BoxConfigSettings from "$lib/components/settings/BoxConfigSettings.svelte";
@@ -14,7 +14,6 @@
     about: boolean;
   };
 
-  const ALL_PROXY_MODES: ProxyMode[] = ["rule", "global", "direct"];
   const SETTINGS_SECTION_STORAGE_KEY = "mono-box.settings-sections";
   const DEFAULT_SETTINGS_SECTION_STATE: SettingsSectionState = {
     boxConfig: true,
@@ -23,23 +22,13 @@
   };
   const initialSettingsSectionState = loadSettingsSectionState();
 
-  let boxConfigPort = $state(9090);
-  let boxConfigSecret = $state("");
+  let boxConfig = $state<BoxConfigFormValues>(createDefaultBoxConfigFormValues());
   let boxConfigSaved = $state(false);
   let boxConfigLoading = $state(false);
   let boxConfigError = $state("");
   let clashApiChecking = $state(false);
   let clashApiCheckOk = $state<boolean | null>(null);
   let clashApiCheckResetTimer: ReturnType<typeof setTimeout> | undefined;
-  let toggleAction = $state<"service" | "tun" | "mode_cycle">("service");
-  let toggleTunTarget = $state<"toggle" | "on" | "off">("toggle");
-  let toggleModeCycle = $state<ProxyMode[]>(["rule", "global", "direct"]);
-  let toggleModeOrder = $state<ProxyMode[]>([...ALL_PROXY_MODES]);
-  let controlMode = $state<ControlMode>("disable");
-  let selectOutbound = $state("");
-  let targetCellular = $state("");
-  let targetWifi = $state("");
-  let targetWifiList = $state("");
 
   let currentVersion = $state("-");
   let currentVersionCode = $state("");
@@ -133,34 +122,11 @@
     }, 1800);
   }
 
-  function buildToggleModeOrder(selectedModes: ProxyMode[]): ProxyMode[] {
-    const selected = selectedModes.filter((mode): mode is ProxyMode => ALL_PROXY_MODES.includes(mode));
-    const remaining = ALL_PROXY_MODES.filter((mode) => !selected.includes(mode));
-    return [...selected, ...remaining];
-  }
-
-  function quoteBoxConfigValue(value: string): string {
-    return `"${value.replace(/\r?\n/g, ";").replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`").trim()}"`;
-  }
-
   async function loadBoxConfig() {
     try {
       boxConfigLoading = true;
       boxConfigError = "";
-      const content = await getBoxConfigRaw();
-      const parsed = parseBoxConfig(content);
-
-      boxConfigPort = parsed.clashApiPort;
-      boxConfigSecret = parsed.clashApiSecret;
-      toggleAction = parsed.toggleAction;
-      toggleTunTarget = parsed.toggleTunTarget;
-      toggleModeCycle = [...parsed.toggleModeCycle];
-      toggleModeOrder = buildToggleModeOrder(parsed.toggleModeCycle);
-      controlMode = parsed.controlMode;
-      selectOutbound = parsed.selectOutbound;
-      targetCellular = parsed.targetCellular;
-      targetWifi = parsed.targetWifi;
-      targetWifiList = parsed.targetWifiList;
+      boxConfig = await getBoxConfigForm();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       boxConfigError = `无法读取 box.config 文件: ${message}`;
@@ -175,18 +141,7 @@
       boxConfigLoading = true;
       boxConfigError = "";
 
-      await updateBoxConfigValues({
-        clash_api_port: boxConfigPort.toString(),
-        clash_api_secret: quoteBoxConfigValue(boxConfigSecret),
-        toggle_action: `"${toggleAction}"`,
-        toggle_tun_target: `"${toggleTunTarget}"`,
-        toggle_mode_cycle: `"${toggleModeOrder.filter((mode) => toggleModeCycle.includes(mode)).join(",")}"`,
-        ctr_mode: controlMode,
-        select_outbound: quoteBoxConfigValue(selectOutbound),
-        target_cellular: quoteBoxConfigValue(targetCellular),
-        target_wifi: quoteBoxConfigValue(targetWifi),
-        target_wifi_list: quoteBoxConfigValue(targetWifiList),
-      });
+      await saveBoxConfigForm(boxConfig);
 
       triggerSavedState();
     } catch (e) {
@@ -205,8 +160,8 @@
       clashApiCheckOk = null;
 
       const result = await clashApi.checkVersion({
-        port: boxConfigPort,
-        secret: boxConfigSecret,
+        port: boxConfig.clashApiPort,
+        secret: boxConfig.clashApiSecret,
       });
 
       clashApiCheckOk = result.ok;
@@ -246,7 +201,7 @@
   }
 
   function getDefaultPanelUrl(): string {
-    return `http://127.0.0.1:${boxConfigPort}/ui`;
+    return `http://127.0.0.1:${boxConfig.clashApiPort}/ui`;
   }
 
   async function saveHomeLayout() {
@@ -278,22 +233,12 @@
 <div class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
   <CollapsibleSection title="box.config 配置" controls="box-config-settings" bind:open={boxConfigOpen} onchange={(open) => saveSettingsSectionState({ boxConfig: open })}>
     <BoxConfigSettings
-      bind:boxConfigPort
-      bind:boxConfigSecret
+      bind:boxConfig
       {boxConfigSaved}
       {boxConfigLoading}
       bind:boxConfigError
       {clashApiChecking}
       {clashApiCheckOk}
-      bind:toggleAction
-      bind:toggleTunTarget
-      bind:toggleModeCycle
-      bind:toggleModeOrder
-      bind:controlMode
-      bind:selectOutbound
-      bind:targetCellular
-      bind:targetWifi
-      bind:targetWifiList
       onsave={saveBoxConfig}
       oncheckapi={checkClashApiVersion}
     />

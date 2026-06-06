@@ -3,57 +3,35 @@
   import { cubicOut } from "svelte/easing";
   import { fly, slide } from "svelte/transition";
   import { ArrowDown, ArrowUp, Check, Eye, EyeOff, RefreshCw, Save, X } from "@lucide/svelte";
+  import type { BoxConfigFormValues } from "$lib/api";
   import CheckBox from "$lib/components/common/CheckBox.svelte";
   import Select from "$lib/components/common/Select.svelte";
 
   type ProxyMode = "rule" | "global" | "direct";
   type ControlMode = "disable" | "switch" | "tun" | "selector" | "mode";
-  type ToggleAction = "service" | "tun" | "mode_cycle";
-  type ToggleTunTarget = "toggle" | "on" | "off";
 
   let {
-    boxConfigPort = $bindable<number>(),
-    boxConfigSecret = $bindable<string>(),
+    boxConfig = $bindable<BoxConfigFormValues>(),
     boxConfigSaved,
     boxConfigLoading,
     boxConfigError = $bindable<string>(),
     clashApiChecking,
     clashApiCheckOk,
-    toggleAction = $bindable<ToggleAction>(),
-    toggleTunTarget = $bindable<ToggleTunTarget>(),
-    toggleModeCycle = $bindable<ProxyMode[]>(),
-    toggleModeOrder = $bindable<ProxyMode[]>(),
-    controlMode = $bindable<ControlMode>(),
-    selectOutbound = $bindable<string>(),
-    targetCellular = $bindable<string>(),
-    targetWifi = $bindable<string>(),
-    targetWifiList = $bindable<string>(),
     onsave,
     oncheckapi,
   } = $props<{
-    boxConfigPort: number;
-    boxConfigSecret: string;
+    boxConfig: BoxConfigFormValues;
     boxConfigSaved: boolean;
     boxConfigLoading: boolean;
     boxConfigError: string;
     clashApiChecking: boolean;
     clashApiCheckOk: boolean | null;
-    toggleAction: ToggleAction;
-    toggleTunTarget: ToggleTunTarget;
-    toggleModeCycle: ProxyMode[];
-    toggleModeOrder: ProxyMode[];
-    controlMode: ControlMode;
-    selectOutbound: string;
-    targetCellular: string;
-    targetWifi: string;
-    targetWifiList: string;
     onsave: () => void | Promise<void>;
     oncheckapi: () => void | Promise<void>;
   }>();
 
-  const ALL_PROXY_MODES: ProxyMode[] = ["rule", "global", "direct"];
-  const typedToggleModeOrder = $derived(toggleModeOrder as ProxyMode[]);
-  const typedToggleModeCycle = $derived(toggleModeCycle as ProxyMode[]);
+  const typedToggleModeOrder = $derived(boxConfig.toggleModeOrder as ProxyMode[]);
+  const typedToggleModeCycle = $derived(boxConfig.toggleModeCycle as ProxyMode[]);
   let boxConfigSecretVisible = $state(false);
 
   const proxyModeLabels: Record<ProxyMode, string> = {
@@ -104,34 +82,34 @@
   const clashModeCellularTargetOptions = [...clashModeTargetOptions, { value: "last", label: "恢复上次状态" }];
 
   function applyControlModeDefaults(mode: ControlMode) {
-    targetWifiList = "";
+    boxConfig.targetWifiList = "";
 
     if (mode === "switch") {
-      targetCellular = "start";
-      targetWifi = "stop";
+      boxConfig.targetCellular = "start";
+      boxConfig.targetWifi = "stop";
       return;
     }
 
     if (mode === "tun") {
-      targetCellular = "true";
-      targetWifi = "false";
+      boxConfig.targetCellular = "true";
+      boxConfig.targetWifi = "false";
       return;
     }
 
     if (mode === "selector") {
-      targetCellular = "last";
-      targetWifi = "DIRECT";
+      boxConfig.targetCellular = "last";
+      boxConfig.targetWifi = "DIRECT";
       return;
     }
 
     if (mode === "mode") {
-      targetCellular = "last";
-      targetWifi = "direct";
+      boxConfig.targetCellular = "last";
+      boxConfig.targetWifi = "direct";
       return;
     }
 
-    targetCellular = "";
-    targetWifi = "";
+    boxConfig.targetCellular = "";
+    boxConfig.targetWifi = "";
   }
 
   function toggleModeCycleEntry(mode: ProxyMode) {
@@ -141,12 +119,12 @@
         boxConfigError = "模式循环至少需要一个状态";
         return;
       }
-      toggleModeCycle = next;
+      boxConfig.toggleModeCycle = next;
       boxConfigError = "";
       return;
     }
 
-    toggleModeCycle = [...typedToggleModeCycle, mode];
+    boxConfig.toggleModeCycle = [...typedToggleModeCycle, mode];
     boxConfigError = "";
   }
 
@@ -157,7 +135,7 @@
     const next = [...typedToggleModeOrder];
     const [item] = next.splice(index, 1);
     next.splice(targetIndex, 0, item);
-    toggleModeOrder = next;
+    boxConfig.toggleModeOrder = next;
   }
 </script>
 
@@ -183,7 +161,7 @@
       <input
         id="box-api-port"
         type="number"
-        bind:value={boxConfigPort}
+        bind:value={boxConfig.clashApiPort}
         disabled={boxConfigLoading}
         class="min-w-0 px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
         placeholder="9090"
@@ -250,7 +228,7 @@
       <input
         id="box-api-secret"
         type={boxConfigSecretVisible ? "text" : "password"}
-        bind:value={boxConfigSecret}
+        bind:value={boxConfig.clashApiSecret}
         name="clash-api-secret"
         autocomplete="off"
         data-form-type="other"
@@ -280,20 +258,20 @@
 
   <div class="flex flex-col gap-2">
     <label for="toggle-action" class="text-sm font-bold text-slate-900 dark:text-slate-200">默认 Toggle 行为</label>
-    <Select id="toggle-action" bind:value={toggleAction} options={toggleActionOptions} disabled={boxConfigLoading} />
+    <Select id="toggle-action" bind:value={boxConfig.toggleAction} options={toggleActionOptions} disabled={boxConfigLoading} />
     <span class="text-xs text-slate-500 dark:text-slate-400">作用于 action.sh 的 toggle 命令</span>
   </div>
 
-  {#if toggleAction === "tun"}
+  {#if boxConfig.toggleAction === "tun"}
     <div in:slide={{ duration: 220, easing: cubicOut }} out:slide={{ duration: 180, easing: cubicOut }}>
       <div class="flex flex-col gap-2">
         <label for="toggle-tun-target" class="text-sm font-bold text-slate-900 dark:text-slate-200">TUN Toggle 策略</label>
-        <Select id="toggle-tun-target" bind:value={toggleTunTarget} options={toggleTunTargetOptions} disabled={boxConfigLoading} />
+        <Select id="toggle-tun-target" bind:value={boxConfig.toggleTunTarget} options={toggleTunTargetOptions} disabled={boxConfigLoading} />
       </div>
     </div>
   {/if}
 
-  {#if toggleAction === "mode_cycle"}
+  {#if boxConfig.toggleAction === "mode_cycle"}
     <div in:slide={{ duration: 220, easing: cubicOut }} out:slide={{ duration: 180, easing: cubicOut }} class="overflow-hidden">
       <div class="space-y-3">
         <div class="flex flex-col gap-2">
@@ -339,22 +317,22 @@
   <div class="space-y-4">
     <div class="flex flex-col gap-2">
       <label for="control-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">网络事件控制</label>
-      <Select id="control-mode" bind:value={controlMode} options={controlModeOptions} disabled={boxConfigLoading} onchange={(value) => applyControlModeDefaults(value as ControlMode)} />
+      <Select id="control-mode" bind:value={boxConfig.controlMode} options={controlModeOptions} disabled={boxConfigLoading} onchange={(value) => applyControlModeDefaults(value as ControlMode)} />
       <span class="text-xs text-slate-500 dark:text-slate-400">监听 Wi-Fi / 蜂窝网络变化后执行对应策略</span>
     </div>
 
-    {#if controlMode === "switch" || controlMode === "tun" || controlMode === "selector" || controlMode === "mode"}
+    {#if boxConfig.controlMode === "switch" || boxConfig.controlMode === "tun" || boxConfig.controlMode === "selector" || boxConfig.controlMode === "mode"}
       <div in:slide={{ duration: 220, easing: cubicOut }} out:slide={{ duration: 180, easing: cubicOut }} class="space-y-4">
-        {#if controlMode === "switch"}
+        {#if boxConfig.controlMode === "switch"}
           <div class="space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-2">
                 <label for="target-cellular-service" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝核心动作</label>
-                <Select id="target-cellular-service" bind:value={targetCellular} options={serviceStateOptions} disabled={boxConfigLoading} />
+                <Select id="target-cellular-service" bind:value={boxConfig.targetCellular} options={serviceStateOptions} disabled={boxConfigLoading} />
               </div>
               <div class="flex flex-col gap-2">
                 <label for="target-wifi-service" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 核心动作</label>
-                <Select id="target-wifi-service" bind:value={targetWifi} options={serviceStateOptions} disabled={boxConfigLoading} />
+                <Select id="target-wifi-service" bind:value={boxConfig.targetWifi} options={serviceStateOptions} disabled={boxConfigLoading} />
               </div>
             </div>
 
@@ -362,7 +340,7 @@
               <label for="target-wifi-list-service" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 核心动作映射</label>
               <textarea
                 id="target-wifi-list-service"
-                bind:value={targetWifiList}
+                bind:value={boxConfig.targetWifiList}
                 disabled={boxConfigLoading}
                 rows="2"
                 class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
@@ -371,16 +349,16 @@
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方动作；格式：SSID,start/stop;SSID,start/stop</span>
             </div>
           </div>
-        {:else if controlMode === "tun"}
+        {:else if boxConfig.controlMode === "tun"}
           <div class="space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-2">
                 <label for="target-cellular-tun" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝目标 TUN</label>
-                <Select id="target-cellular-tun" bind:value={targetCellular} options={tunStateOptions} disabled={boxConfigLoading} />
+                <Select id="target-cellular-tun" bind:value={boxConfig.targetCellular} options={tunStateOptions} disabled={boxConfigLoading} />
               </div>
               <div class="flex flex-col gap-2">
                 <label for="target-wifi-tun" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 目标 TUN</label>
-                <Select id="target-wifi-tun" bind:value={targetWifi} options={tunStateOptions} disabled={boxConfigLoading} />
+                <Select id="target-wifi-tun" bind:value={boxConfig.targetWifi} options={tunStateOptions} disabled={boxConfigLoading} />
               </div>
             </div>
 
@@ -388,7 +366,7 @@
               <label for="target-wifi-list-tun" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID TUN 映射</label>
               <textarea
                 id="target-wifi-list-tun"
-                bind:value={targetWifiList}
+                bind:value={boxConfig.targetWifiList}
                 disabled={boxConfigLoading}
                 rows="2"
                 class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
@@ -397,14 +375,14 @@
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方目标；格式：SSID,true/false;SSID,true/false</span>
             </div>
           </div>
-        {:else if controlMode === "selector"}
+        {:else if boxConfig.controlMode === "selector"}
           <div class="space-y-4">
             <div class="flex flex-col gap-2">
               <label for="select-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">策略组名称</label>
               <input
                 id="select-outbound"
                 type="text"
-                bind:value={selectOutbound}
+                bind:value={boxConfig.selectOutbound}
                 disabled={boxConfigLoading}
                 class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
                 placeholder="Proxy"
@@ -418,7 +396,7 @@
                 <input
                   id="target-cellular-outbound"
                   type="text"
-                  bind:value={targetCellular}
+                  bind:value={boxConfig.targetCellular}
                   disabled={boxConfigLoading}
                   class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
                   placeholder="Proxy / last / 留空不改变"
@@ -429,7 +407,7 @@
                 <input
                   id="target-wifi-outbound"
                   type="text"
-                  bind:value={targetWifi}
+                  bind:value={boxConfig.targetWifi}
                   disabled={boxConfigLoading}
                   class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
                   placeholder="DIRECT"
@@ -441,7 +419,7 @@
               <label for="target-wifi-list-outbound" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 出站映射</label>
               <textarea
                 id="target-wifi-list-outbound"
-                bind:value={targetWifiList}
+                bind:value={boxConfig.targetWifiList}
                 disabled={boxConfigLoading}
                 rows="2"
                 class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"
@@ -450,16 +428,16 @@
               <span class="text-xs text-slate-500 dark:text-slate-400">留空则所有 Wi-Fi 使用上方目标；格式：SSID,出站;SSID,出站</span>
             </div>
           </div>
-        {:else if controlMode === "mode"}
+        {:else if boxConfig.controlMode === "mode"}
           <div class="space-y-4">
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div class="flex flex-col gap-2">
                 <label for="target-cellular-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">蜂窝目标模式</label>
-                <Select id="target-cellular-mode" bind:value={targetCellular} options={clashModeCellularTargetOptions} disabled={boxConfigLoading} />
+                <Select id="target-cellular-mode" bind:value={boxConfig.targetCellular} options={clashModeCellularTargetOptions} disabled={boxConfigLoading} />
               </div>
               <div class="flex flex-col gap-2">
                 <label for="target-wifi-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">Wi-Fi 目标模式</label>
-                <Select id="target-wifi-mode" bind:value={targetWifi} options={clashModeTargetOptions} disabled={boxConfigLoading} />
+                <Select id="target-wifi-mode" bind:value={boxConfig.targetWifi} options={clashModeTargetOptions} disabled={boxConfigLoading} />
               </div>
             </div>
 
@@ -467,7 +445,7 @@
               <label for="target-wifi-list-mode" class="text-sm font-bold text-slate-900 dark:text-slate-200">SSID 模式映射</label>
               <textarea
                 id="target-wifi-list-mode"
-                bind:value={targetWifiList}
+                bind:value={boxConfig.targetWifiList}
                 disabled={boxConfigLoading}
                 rows="2"
                 class="px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 resize-y font-mono text-sm rounded-lg"

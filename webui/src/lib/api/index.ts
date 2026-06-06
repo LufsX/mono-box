@@ -4,6 +4,7 @@ import { createMockClashApi } from "./clash.mock";
 import * as actionReal from "./action";
 import * as actionMock from "./action.mock";
 import { createBoxConfigAccessor } from "./box-config";
+import { createBoxConfigFormAccessor } from "./box-config-form";
 import { createClashStores } from "./clash-stores";
 
 const isProduction = import.meta.env.MODE === "production";
@@ -17,10 +18,14 @@ export const actionApi = activeAction;
 const boxConfigAccessor = createBoxConfigAccessor(configPort);
 export const { getBoxConfig, getBoxConfigRaw, updateBoxConfigValues, clearBoxConfigCache } = boxConfigAccessor;
 
+const boxConfigFormAccessor = createBoxConfigFormAccessor(boxConfigAccessor);
+export const { getBoxConfigForm, saveBoxConfigForm } = boxConfigFormAccessor;
+
 const clashStores = createClashStores(clashApi);
 export const { stores, actions } = clashStores;
 
 export { parseBoxConfig, upsertConfigValue, readConfigValue } from "./config-parser";
+export { ALL_PROXY_MODES, buildToggleModeOrder, createDefaultBoxConfigFormValues, type BoxConfigFormValues } from "./box-config-form";
 
 export type {
   ClashApiPort,

@@ -7,31 +7,34 @@
   import Select from "$lib/components/common/Select.svelte";
   import ProxyNodeTile from "$lib/components/shared/ProxyNodeTile.svelte";
   import { clashApi, stores, actions } from "$lib/api";
-  import type { ClashProxy, ClashProxyProvider, ProxyMode } from "$lib/api";
+  import type { ClashProxyMap, ClashProxyProviderMap, ProxyMode } from "$lib/api";
   import { classifyConnectionError } from "$lib/api/error-utils";
   import KernelAuthNotice from "$lib/components/shared/KernelAuthNotice.svelte";
   import { loadHomeLayoutSettings } from "$lib/settings";
   import { useModalHistory } from "$lib/modal-history";
   import { formatBytes } from "$lib/utils";
+  import {
+    deriveLatencyMap,
+    formatProviderExpireDate as formatDate,
+    getLatencyStyle,
+    groupNames as resolveGroupNames,
+    groupNodes as resolveGroupNodes,
+    latencyBarClass,
+    providerNames as resolveProviderNames,
+    providerUsableNodes as resolveProviderUsableNodes,
+    readNodeLatency as resolveNodeLatency,
+    resolveProxyTestUrl,
+    resolveTestUrl,
+    sortedGroupNodes as resolveSortedGroupNodes,
+    syncRecord,
+    type ClashMode,
+    type NodeSortType,
+    type ProxyNode,
+    type ViewType,
+  } from "$lib/page-state/proxies";
 
-  type NodeSortType = "default" | "latency" | "name";
-  type GroupType = "Selector" | "URLTest" | "Fallback" | "LoadBalance";
-  type ViewType = "proxies" | "providers";
-  type ClashMode = "rule" | "global" | "direct";
-
-  interface ProxyNode {
-    key: string;
-    name: string;
-    index: number;
-    latency: number;
-    type: string;
-  }
-
-  const GROUP_TYPES: GroupType[] = ["Selector", "URLTest", "Fallback", "LoadBalance"];
-  const DEFAULT_TEST_URL = "http://cp.cloudflare.com/generate_204";
-
-  let proxies = $state<Record<string, ClashProxy> | null>(null);
-  let providers = $state<Record<string, ClashProxyProvider> | null>(null);
+  let proxies = $state<ClashProxyMap | null>(null);
+  let providers = $state<ClashProxyProviderMap | null>(null);
   const currentMode = stores.currentMode;
   let modeSelectValue = $state<ClashMode>("rule");
   let currentView = $state<ViewType>("proxies");
@@ -62,101 +65,32 @@
     { value: "direct", label: "直连" },
   ];
 
-  function formatDate(timestamp: number): string {
-    if (!timestamp) return "长期有效";
-    return new Date(timestamp * 1000).toLocaleDateString("zh-CN");
-  }
-
-  function getLatencyStyle(ms: number) {
-    if (!ms || ms === 0) return { text: "text-slate-400 dark:text-slate-500", dot: "bg-slate-300 dark:bg-slate-700" };
-    if (ms < 200) return { text: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" };
-    if (ms < 800) return { text: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" };
-    if (ms < 1500) return { text: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500" };
-    return { text: "text-rose-600 dark:text-rose-400", dot: "bg-rose-500" };
-  }
-
-  function latencyBarClass(ms: number): string {
-    if (!ms || ms <= 0) return "bg-slate-300 dark:bg-zinc-700";
-    if (ms < 200) return "bg-emerald-500";
-    if (ms < 800) return "bg-amber-500";
-    if (ms < 1500) return "bg-orange-500";
-    return "bg-rose-500";
-  }
-
   function readNodeLatency(name: string): number {
-    return latencies[name] || 0;
+    return resolveNodeLatency(latencies, name);
   }
 
   function groupNodes(groupName: string): ProxyNode[] {
-    const group = proxies?.[groupName];
-    if (!group?.all) return [];
-
-    return group.all
-      .map((name, index) => {
-        const detail = proxies?.[name];
-        return {
-          key: `${groupName}:${index}:${name}`,
-          name,
-          index,
-          latency: readNodeLatency(name),
-          type: detail?.type || "Unknown",
-        } satisfies ProxyNode;
-      })
-      .filter((item) => item.name.trim().length > 0);
+    return resolveGroupNodes(proxies, latencies, groupName);
   }
 
   function sortedGroupNodes(groupName: string): ProxyNode[] {
-    const nodes = groupNodes(groupName);
-    const sort = groupSorts[groupName] || "default";
-    if (sort === "default") return nodes;
-
-    return [...nodes].sort((a, b) => {
-      if (sort === "name") {
-        const byName = a.name.localeCompare(b.name);
-        return byName !== 0 ? byName : a.index - b.index;
-      }
-      const aLatency = a.latency || Number.MAX_SAFE_INTEGER;
-      const bLatency = b.latency || Number.MAX_SAFE_INTEGER;
-      return aLatency !== bLatency ? aLatency - bLatency : a.index - b.index;
-    });
+    return resolveSortedGroupNodes(proxies, latencies, groupSorts, groupName);
   }
 
   function groupNames(): string[] {
-    if (!proxies) return [];
-    const names = Object.keys(proxies).filter((name) => GROUP_TYPES.includes((proxies?.[name]?.type as GroupType) || "Selector"));
-    const globalOrder = proxies.GLOBAL?.all || [];
-
-    return names.sort((a, b) => {
-      const idxA = globalOrder.indexOf(a);
-      const idxB = globalOrder.indexOf(b);
-      return (idxA === -1 ? Number.MAX_SAFE_INTEGER : idxA) - (idxB === -1 ? Number.MAX_SAFE_INTEGER : idxB);
-    });
+    return resolveGroupNames(proxies);
   }
 
   function providerNames(): string[] {
-    return Object.keys(providers || {}).filter((name) => providers?.[name]?.vehicleType !== "Compatible");
+    return resolveProviderNames(providers);
   }
 
   function providerUsableNodes(name: string): number {
-    const nodes = providers?.[name]?.proxies || [];
-    return nodes.filter((item) => readNodeLatency(item.name) > 0).length;
+    return resolveProviderUsableNodes(providers, latencies, name);
   }
 
   function getTestUrl(groupName?: string): string {
-    const globalUrl = proxyTestUrl.trim() || DEFAULT_TEST_URL;
-    if (!groupName) return globalUrl;
-
-    const proxyNode = proxies?.[groupName] as { testUrl?: string } | undefined;
-    if (proxyNode?.testUrl && proxyNode.testUrl.trim().length > 0) {
-      return proxyNode.testUrl.trim();
-    }
-
-    const providerNode = providers?.[groupName] as { testUrl?: string } | undefined;
-    if (providerNode?.testUrl && providerNode.testUrl.trim().length > 0) {
-      return providerNode.testUrl.trim();
-    }
-
-    return globalUrl;
+    return resolveTestUrl(proxies, providers, proxyTestUrl, groupName);
   }
 
   function openGroup(groupName: string) {
@@ -222,38 +156,13 @@
       errorReason = "";
       const [proxyData, providerData, configData] = await Promise.all([clashApi.getProxies(), clashApi.getProxyProviders(), clashApi.getConfigs()]);
 
-      if (!proxies) {
-        proxies = proxyData;
-      } else {
-        for (const key of Object.keys(proxies)) {
-          if (!(key in proxyData)) delete proxies[key];
-        }
-        for (const [key, value] of Object.entries(proxyData)) {
-          proxies[key] = value;
-        }
-      }
-
-      if (!providers) {
-        providers = providerData;
-      } else {
-        for (const key of Object.keys(providers)) {
-          if (!(key in providerData)) delete providers[key];
-        }
-        for (const [key, value] of Object.entries(providerData)) {
-          providers[key] = value;
-        }
-      }
+      proxies = syncRecord(proxies, proxyData);
+      providers = syncRecord(providers, providerData);
       if (configData?.mode) {
         modeSelectValue = configData.mode as ClashMode;
       }
 
-      const nextLatency: Record<string, number> = {};
-      for (const [name, item] of Object.entries(proxyData)) {
-        const history = item.history || [];
-        if (!history.length) continue;
-        const last = history[history.length - 1];
-        if (typeof last?.delay === "number") nextLatency[name] = last.delay;
-      }
+      const nextLatency = deriveLatencyMap(proxyData);
       for (const key of Object.keys(latencies)) {
         delete latencies[key];
       }
@@ -261,8 +170,7 @@
         latencies[name] = delay;
       }
       const savedTestUrl = loadHomeLayoutSettings().proxyTestUrl.trim();
-      const configTestUrl = typeof configData?.url === "string" ? configData.url.trim() : "";
-      proxyTestUrl = savedTestUrl || configTestUrl || DEFAULT_TEST_URL;
+      proxyTestUrl = resolveProxyTestUrl(savedTestUrl, configData);
     } catch (e) {
       const classified = classifyConnectionError(e);
       errorReason = classified.reason;

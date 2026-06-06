@@ -1,9 +1,7 @@
 #!/system/bin/sh
 
 . "$(dirname "$(realpath "$0")")/box.env"
-
-last_outbound_file="${run_path}/.lastOutbound"
-last_clash_mode_file="${run_path}/.lastClashMode"
+. "${scripts_dir}/box.policy"
 
 is_manual_mode() {
     [ -f "${box_path}/manual" ]
@@ -15,15 +13,6 @@ is_module_disabled() {
 
 ensure_runtime_dir() {
     mkdir -p "${run_path}"
-}
-
-normalize_ctr_mode() {
-    case "${ctr_mode}" in
-        disable | switch | tun | selector | mode) ;;
-        *)
-            ctr_mode="disable"
-            ;;
-    esac
 }
 
 wait_until_login() {
@@ -69,175 +58,6 @@ handle_module_toggle_event() {
         n)
             "${service_path}" stop >> /dev/null 2>> "${run_log}"
             ;;
-    esac
-}
-
-load_last_policy_state_files() {
-    Outbound=""
-    ClashMode=""
-
-    [ -f "${last_outbound_file}" ] && Outbound="$(cat "${last_outbound_file}")"
-    [ -f "${last_clash_mode_file}" ] && ClashMode="$(cat "${last_clash_mode_file}")"
-}
-
-get_network_state() {
-    if connected; then
-        printf '%s' "wifi"
-        return 0
-    fi
-
-    printf '%s' "cellular"
-    return 0
-}
-
-choose_target() {
-    local network_state="$1"
-    local mapped
-    local ssid_name
-
-    if [ "${network_state}" = "cellular" ]; then
-        printf '%s' "${target_cellular}"
-        return 0
-    fi
-
-    if [ -n "${target_wifi_list}" ]; then
-        ssid_name=$(ssid)
-        mapped=$(getTarget "${target_wifi_list}" "${ssid_name}")
-        if [ -n "${mapped}" ]; then
-            printf '%s' "${mapped}"
-            return 0
-        fi
-    fi
-
-    printf '%s' "${target_wifi}"
-    return 0
-}
-
-choose_policy_target() {
-    local network_state="$1"
-    local policy="$2"
-    local target
-    local fallback
-
-    target=$(choose_target "${network_state}")
-    if [ "${network_state}" = "cellular" ] && [ "${target}" = "last" ]; then
-        case "${policy}" in
-            selector) fallback="${Outbound}" ;;
-            mode) fallback="${ClashMode}" ;;
-        esac
-        printf '%s' "${fallback}"
-        return 0
-    fi
-
-    printf '%s' "${target}"
-    return 0
-}
-
-is_bool_target() {
-    [ "$1" = "true" ] || [ "$1" = "false" ]
-}
-
-apply_switch_policy() {
-    local network_state="$1"
-    local target
-
-    target=$(choose_target "${network_state}")
-
-    case "${target}" in
-        start | on | true)
-            status || "${service_path}" start >> /dev/null 2>> "${run_log}"
-            ;;
-        stop | off | false)
-            status && "${service_path}" stop >> /dev/null 2>> "${run_log}"
-            ;;
-        *) ;;
-    esac
-}
-
-apply_tun_policy() {
-    local network_state="$1"
-    local target
-
-    status || return 0
-    target=$(choose_target "${network_state}")
-    is_bool_target "${target}" || return 0
-
-    setTun "${target}" > /dev/null 2>&1
-}
-
-apply_selector_policy() {
-    local network_state="$1"
-    local target
-
-    status || return 0
-    [ -n "${select_outbound}" ] || return 0
-
-    target=$(choose_policy_target "${network_state}" "selector")
-    [ -n "${target}" ] || return 0
-
-    if [ "${network_state}" = "wifi" ]; then
-        getNowOutbound > "${last_outbound_file}" 2> /dev/null
-    fi
-
-    setOutbound "${select_outbound}" "${target}" > /dev/null 2>&1
-}
-
-apply_clash_mode_policy() {
-    local network_state="$1"
-    local target
-
-    status || return 0
-    target=$(choose_policy_target "${network_state}" "mode")
-    [ -n "${target}" ] || return 0
-
-    if [ "${network_state}" = "wifi" ]; then
-        getNowMode > "${last_clash_mode_file}" 2> /dev/null
-    fi
-
-    setMode "${target}" > /dev/null 2>&1
-}
-
-is_network_event_relevant() {
-    local events="$1"
-    local monitor_dir="$2"
-    local monitor_file="$3"
-
-    [ "${events}" = "w" ] || return 1
-
-    if [ "${monitor_file}" = "rt_tables" ] || [ "${monitor_dir}" = "/data/misc/net/rt_tables" ]; then
-        return 0
-    fi
-
-    return 1
-}
-
-handle_network_policy_event() {
-    local events="$1"
-    local monitor_dir="$2"
-    local monitor_file="$3"
-    local network_state
-
-    is_network_event_relevant "${events}" "${monitor_dir}" "${monitor_file}" || return 0
-    is_module_disabled && return 0
-    [ "${ctr_mode}" = "disable" ] && return 0
-
-    load_last_policy_state_files
-    network_state=$(get_network_state)
-
-    case "${ctr_mode}" in
-        switch)
-            apply_switch_policy "${network_state}"
-            ;;
-        tun)
-            apply_tun_policy "${network_state}"
-            ;;
-        selector)
-            apply_selector_policy "${network_state}"
-            ;;
-        mode)
-            apply_clash_mode_policy "${network_state}"
-            ;;
-        *) ;;
     esac
 }
 

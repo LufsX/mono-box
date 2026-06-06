@@ -48,6 +48,8 @@ zip -r -o -X -ll "$ZIP_NAME" . \
   -x 'webui/*' \
   -x '.github/*' \
   -x '.gitignore' \
+  -x 'AGENTS.md' \
+  -x 'CLAUDE.md' \
   -x '.*/*' \
   -x '.*'
 

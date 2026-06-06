@@ -5,6 +5,7 @@
   import { ArrowDown, ArrowUp, Check, Save } from "@lucide/svelte";
   import CheckBox from "$lib/components/common/CheckBox.svelte";
   import { type BottomTabId, type HomeLayoutSettings, type HomeModuleId } from "$lib/settings";
+  import { BOTTOM_TAB_META, HOME_MODULE_META, isFixedBottomTab } from "$lib/app-registry";
 
   let {
     homeLayout = $bindable<HomeLayoutSettings>(),
@@ -26,24 +27,6 @@
 
   const bottomTabOrder = $derived(homeLayout.bottomTabOrder as BottomTabId[]);
   const moduleOrder = $derived(homeLayout.moduleOrder as HomeModuleId[]);
-
-  const moduleLabels: Record<HomeModuleId, string> = {
-    tun: "网络接管与内核",
-    proxy: "代理模式选择",
-    stats: "实时内核信息",
-    service: "快速控制指令",
-    panel: "面板快捷跳转",
-    core: "核心状态与端口",
-    log: "Terminal Logs",
-  };
-
-  const bottomTabLabels: Record<BottomTabId, string> = {
-    home: "首页",
-    proxies: "代理",
-    connections: "连接",
-    rules: "规则",
-    settings: "设置",
-  };
 
   function isModuleVisible(moduleId: HomeModuleId): boolean {
     return !homeLayout.hiddenModules.includes(moduleId);
@@ -69,12 +52,12 @@
   }
 
   function isBottomTabVisible(tabId: BottomTabId): boolean {
-    if (tabId === "settings") return true;
+    if (isFixedBottomTab(tabId)) return true;
     return !homeLayout.bottomTabHidden.includes(tabId);
   }
 
   function toggleBottomTabVisible(tabId: BottomTabId) {
-    if (tabId === "settings") return;
+    if (isFixedBottomTab(tabId)) return;
 
     if (isBottomTabVisible(tabId)) {
       homeLayout.bottomTabHidden.push(tabId);
@@ -122,12 +105,12 @@
     <p class="text-sm font-bold text-slate-900 dark:text-slate-200">底部 Tab 显示与排序</p>
     {#each bottomTabOrder as tabId, index (tabId)}
       <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 rounded-lg">
-        {#if tabId === "settings"}
+        {#if isFixedBottomTab(tabId)}
           <div class="pointer-events-none opacity-90">
-            <CheckBox id={`tab-${tabId}`} checked={true} onchange={() => {}} label={`${bottomTabLabels[tabId]} (固定)`} bare />
+            <CheckBox id={`tab-${tabId}`} checked={true} onchange={() => {}} label={`${BOTTOM_TAB_META[tabId].label} (固定)`} bare />
           </div>
         {:else}
-          <CheckBox id={`tab-${tabId}`} checked={isBottomTabVisible(tabId)} onchange={() => toggleBottomTabVisible(tabId)} label={bottomTabLabels[tabId]} bare />
+          <CheckBox id={`tab-${tabId}`} checked={isBottomTabVisible(tabId)} onchange={() => toggleBottomTabVisible(tabId)} label={BOTTOM_TAB_META[tabId].label} bare />
         {/if}
         <div class="flex items-center gap-1">
           <button
@@ -186,7 +169,7 @@
     <p class="text-sm font-bold text-slate-900 dark:text-slate-200">首页模块显示与排序</p>
     {#each moduleOrder as moduleId, index (moduleId)}
       <div animate:flip={{ duration: 220, easing: cubicOut }} class="flex items-center justify-between border border-slate-300 dark:border-zinc-700 px-3 py-2 bg-white dark:bg-zinc-950/50 rounded-lg">
-        <CheckBox id={`module-${moduleId}`} checked={isModuleVisible(moduleId)} onchange={() => toggleModuleVisible(moduleId)} label={moduleLabels[moduleId]} bare />
+        <CheckBox id={`module-${moduleId}`} checked={isModuleVisible(moduleId)} onchange={() => toggleModuleVisible(moduleId)} label={HOME_MODULE_META[moduleId].label} bare />
         <div class="flex items-center gap-1">
           <button
             type="button"

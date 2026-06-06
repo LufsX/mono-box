@@ -6,11 +6,8 @@
   import BottomNav from "$lib/components/layout/BottomNav.svelte";
   import { loadHomeLayoutSettings, initRoundedStore } from "$lib/settings";
   import { actionApi } from "$lib/api";
-  import Home from "$lib/pages/Home.svelte";
-  import Proxies from "$lib/pages/Proxies.svelte";
-  import Settings from "$lib/pages/Settings.svelte";
-  import Connections from "$lib/pages/Connections.svelte";
-  import Rules from "$lib/pages/Rules.svelte";
+  import { normalizeHash } from "$lib/app-registry";
+  import { resolvePageComponent } from "$lib/app-pages";
   import "./layout.css";
 
   // Execute immediately with highest priority
@@ -24,7 +21,8 @@
 
   let currentHash = $state("#/");
 
-  const currentPath = $derived((currentHash || "#/").split("?")[0] || "#/");
+  const currentPath = $derived(normalizeHash(currentHash));
+  const CurrentPage = $derived(resolvePageComponent(currentPath));
 
   onMount(() => {
     const handleHashChange = () => {
@@ -48,17 +46,7 @@
   {#key currentHash}
     <div class="app-page-wrapper" in:fly={{ y: 12, duration: 300, easing: cubicOut }} out:fade={{ duration: 180 }}>
       <div class="app-scroll">
-        {#if currentPath === "#/settings"}
-          <Settings />
-        {:else if currentPath === "#/proxies"}
-          <Proxies />
-        {:else if currentPath === "#/connections"}
-          <Connections />
-        {:else if currentPath === "#/rules"}
-          <Rules />
-        {:else}
-          <Home />
-        {/if}
+        <CurrentPage />
       </div>
     </div>
   {/key}

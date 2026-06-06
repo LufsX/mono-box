@@ -1,0 +1,26 @@
+#!/system/bin/sh
+
+ssid() {
+    if connected; then
+        local ssid_name
+        ssid_name=$(dumpsys wifi | grep mWifiInfo | head -n 1 | cut -d '"' -f 2)
+        if [ -n "$(printf '%s' "${ssid_name}" | grep '<unknown ssid>')" ]; then
+            printf '%s' '<unknown ssid>'
+            return
+        fi
+        printf '%s' "${ssid_name}"
+    else
+        printf '%s' '<unknown ssid>'
+        return 1
+    fi
+}
+
+connected() {
+    grep -q wlan /data/misc/net/rt_tables 2> /dev/null
+}
+
+getTarget() {
+    local mapping="$1"
+    local key="$2"
+    printf '%s' "${mapping}" | tr ';' '\n' | awk -F ',' -v target="${key}" '$1==target {print $2; exit}'
+}
