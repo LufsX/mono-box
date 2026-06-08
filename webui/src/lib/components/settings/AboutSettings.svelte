@@ -4,6 +4,7 @@
   import { fade, fly, scale } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import Select from "$lib/components/common/Select.svelte";
+  import { useModalHistory } from "$lib/modal-history";
 
   type UpdateSource = "current" | "release" | "nightly";
   type UpdateStatus = "idle" | "checking" | "ok" | "error";
@@ -34,6 +35,9 @@
   let changelogError = $state("");
   let changelogText = $state("");
   let changelogOpen = $state(false);
+  const modalHistory = useModalHistory("about-changelog", () => {
+    changelogOpen = false;
+  });
 
   const updateSourceOptions = [
     { value: "current", label: "当前通道" },
@@ -143,6 +147,7 @@
 
   function openChangelog() {
     if (!updateInfo || !hasChangelogSource) return;
+    if (!changelogOpen) modalHistory.push();
     changelogOpen = true;
 
     if (!changelogLoading && !changelogText && !changelogError) {
@@ -151,7 +156,7 @@
   }
 
   function closeChangelog() {
-    changelogOpen = false;
+    modalHistory.close();
   }
 
   async function checkUpdate() {
@@ -238,11 +243,7 @@
         aria-label={actionIsDownload ? "下载更新" : "检查更新"}
       >
         {#key actionIsDownload}
-          <div
-            class="flex h-full items-center justify-center gap-1.5 min-w-0"
-            in:fly={{ x: actionIsDownload ? 8 : -8, duration: 160, easing: cubicOut }}
-            out:fade={{ duration: 80 }}
-          >
+          <div class="flex h-full items-center justify-center gap-1.5 min-w-0" in:fly={{ x: actionIsDownload ? 8 : -8, duration: 160, easing: cubicOut }} out:fade={{ duration: 80 }}>
             {#if actionIsDownload}
               <Download size={15} class="shrink-0" />
             {:else}
@@ -310,7 +311,10 @@
             <div class="mt-0.5 font-mono text-[11px] text-slate-500 dark:text-zinc-500">{updateInfo.version} ({updateInfo.versionCode})</div>
           {/if}
         </div>
-        <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg" onclick={closeChangelog}>
+        <button
+          class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
+          onclick={closeChangelog}
+        >
           <X size={14} />
         </button>
       </div>

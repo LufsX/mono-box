@@ -338,11 +338,7 @@
         </div>
       {/if}
 
-      <div
-        class="h-full overflow-y-auto p-3 custom-scrollbar {terminalClearing ? 'terminal-buffer-clearing' : ''}"
-        bind:this={logsContainer}
-        onscroll={updateStickToTop}
-      >
+      <div class="h-full overflow-y-auto p-3 custom-scrollbar {terminalClearing ? 'terminal-buffer-clearing' : ''}" bind:this={logsContainer} onscroll={updateStickToTop}>
         {#if logRows.length === 0}
           <div class="flex h-full items-center justify-center text-zinc-700" in:fade={{ duration: 160 }}>Waiting for logs...</div>
         {:else if filteredLogRows.length === 0}
@@ -350,11 +346,7 @@
         {:else}
           <div class="space-y-2">
             {#each filteredLogRows as row (row.id)}
-              <div
-                class="border-b border-zinc-900 pb-2 text-zinc-300"
-                in:fly={{ x: -6, duration: 120, easing: cubicOut }}
-                out:fly={{ x: 10, duration: 140, easing: cubicOut }}
-              >
+              <div class="border-b border-zinc-900 pb-2 text-zinc-300" in:fly={{ x: -6, duration: 120, easing: cubicOut }} out:fly={{ x: 10, duration: 140, easing: cubicOut }}>
                 <div class="flex items-center justify-between gap-3">
                   <span class={typeClass(row.type)}>{row.type}</span>
                   <time class="shrink-0 select-none text-zinc-600">[{row.time}]</time>
