@@ -239,6 +239,50 @@ log_file_size() {
     printf "%s" "${size}"
 }
 
+active_log_file() {
+    local pid="$1"
+    local fd_log=""
+
+    [ -n "${pid}" ] || return 1
+
+    if command -v readlink > /dev/null 2>&1; then
+        fd_log="$(readlink "/proc/${pid}/fd/1" 2> /dev/null)"
+    fi
+
+    if [ -z "${fd_log}" ] && command -v busybox > /dev/null 2>&1; then
+        fd_log="$(busybox readlink "/proc/${pid}/fd/1" 2> /dev/null)"
+    fi
+
+    fd_log="${fd_log% (deleted)}"
+    case "${fd_log}" in
+        "${box_path}/${bin_name}/${bin_name}_"*.log)
+            [ -f "${fd_log}" ] || return 1
+            printf "%s" "${fd_log}"
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+latest_listed_log_file() {
+    local list_file="$1"
+
+    [ -s "${list_file}" ] || return 1
+
+    if command -v sort > /dev/null 2>&1 && command -v tail > /dev/null 2>&1; then
+        sort "${list_file}" 2> /dev/null | tail -n 1
+        return 0
+    fi
+
+    if command -v busybox > /dev/null 2>&1; then
+        busybox sort "${list_file}" 2> /dev/null | busybox tail -n 1
+        return 0
+    fi
+
+    return 1
+}
+
 logs_size_service() {
     local tmp_file
     local file
@@ -266,21 +310,35 @@ clear_logs_service() {
     local tmp_file
     local file
     local size
+    local pid
+    local active_log=""
     local total=0
     local count=0
     local failed=0
+    local skipped=0
 
     mkdir -p "${run_path}"
     tmp_file="${run_path}/.clear_logs.$$"
     list_log_files > "${tmp_file}" 2> /dev/null || true
 
+    if pid="$(running_pid)"; then
+        active_log="$(active_log_file "${pid}")"
+        [ -n "${active_log}" ] || active_log="$(latest_listed_log_file "${tmp_file}")"
+    fi
+
     while IFS= read -r file; do
         [ -f "${file}" ] || continue
         size="$(log_file_size "${file}")"
-        total=$((total + size))
-        count=$((count + 1))
+
+        if [ -n "${active_log}" ] && [ "${file}" = "${active_log}" ]; then
+            skipped=$((skipped + 1))
+            printf "file\tskipped\t%s\t%s\n" "${size}" "${file}"
+            continue
+        fi
 
         if rm -f "${file}" 2> /dev/null; then
+            total=$((total + size))
+            count=$((count + 1))
             printf "file\tcleared\t%s\t%s\n" "${size}" "${file}"
         else
             failed=$((failed + 1))
@@ -288,7 +346,7 @@ clear_logs_service() {
         fi
     done < "${tmp_file}"
 
-    printf "cleared\t%s\t%s\t%s\n" "${total}" "${count}" "${failed}"
+    printf "cleared\t%s\t%s\t%s\t%s\n" "${total}" "${count}" "${failed}" "${skipped}"
     rm -f "${tmp_file}" > /dev/null 2>&1
 
     [ "${failed}" -eq 0 ]

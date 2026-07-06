@@ -51,6 +51,11 @@ function ok(stdout = "", stderr = ""): CommandResult {
   };
 }
 
+function latestMockLogPath(): string | undefined {
+  const sortedFiles = [...mockLogFiles].sort((a, b) => a.path.localeCompare(b.path));
+  return sortedFiles[sortedFiles.length - 1]?.path;
+}
+
 export async function runActionScript(actionCmd: string): Promise<CommandResult> {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   if (actionCmd === "logs_size") {
@@ -61,10 +66,27 @@ export async function runActionScript(actionCmd: string): Promise<CommandResult>
   }
 
   if (actionCmd === "clear_logs") {
-    const totalBytes = mockLogFiles.reduce((sum, file) => sum + file.size, 0);
-    const count = mockLogFiles.length;
-    mockLogFiles = [];
-    return ok(`cleared\t${totalBytes}\t${count}\t0`);
+    const activeLogPath = latestMockLogPath();
+    let totalBytes = 0;
+    let count = 0;
+    let skipped = 0;
+    const lines: string[] = [];
+
+    mockLogFiles = mockLogFiles.filter((file) => {
+      if (file.path === activeLogPath) {
+        skipped += 1;
+        lines.push(`file\tskipped\t${file.size}\t${file.path}`);
+        return true;
+      }
+
+      totalBytes += file.size;
+      count += 1;
+      lines.push(`file\tcleared\t${file.size}\t${file.path}`);
+      return false;
+    });
+
+    lines.push(`cleared\t${totalBytes}\t${count}\t0\t${skipped}`);
+    return ok(lines.join("\n"));
   }
 
   return ok(`Mock execute: ${actionCmd}`);

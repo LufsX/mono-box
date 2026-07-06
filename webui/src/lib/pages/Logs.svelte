@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { flip } from "svelte/animate";
   import { onDestroy, onMount, tick } from "svelte";
-  import { fade, fly, slide } from "svelte/transition";
+  import { fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { Pause, Play, RefreshCw, ScrollText, Search, Trash2 } from "@lucide/svelte";
   import { actionApi, clashApi } from "$lib/api";
@@ -12,6 +13,7 @@
   type LogLevelFilter = "all" | ClashLogLevel;
   type StreamState = "connecting" | "connected" | "closed" | "error";
   type LogRow = ClashLogEntry & { id: number; time: string };
+  type FileBanner = { tone: "error" | "notice"; message: string };
 
   const LEVEL_OPTIONS: { value: LogLevelFilter; label: string }[] = [
     { value: "all", label: "全部" },
@@ -32,14 +34,19 @@
   let clearingFiles = $state(false);
   let terminalClearing = $state(false);
   let fileError = $state("");
+  let fileNotice = $state("");
   let logsContainer: HTMLElement | undefined = $state();
+  let logFilesBody: HTMLElement | undefined = $state();
+  let logFilesBodyHeight = $state<number | null>(null);
   let stickToTop = $state(true);
   let rowId = 0;
   let socketEpoch = 0;
   let terminalClearToken = 0;
+  let fileNoticeTimer: ReturnType<typeof window.setTimeout> | undefined;
   let logSocket: WebSocket | null = null;
 
   const sortedLogFiles = $derived([...logReport.files].sort((a, b) => b.size - a.size || a.path.localeCompare(b.path)));
+  const fileBanner = $derived<FileBanner | null>(fileError ? { tone: "error", message: fileError } : fileNotice ? { tone: "notice", message: fileNotice } : null);
   const filteredLogRows = $derived.by(() => {
     const keyword = searchQuery.trim().toLowerCase();
     if (!keyword) return logRows;
@@ -57,6 +64,49 @@
     return new Promise((resolve) => {
       window.setTimeout(resolve, ms);
     });
+  }
+
+  function clearFileNotice() {
+    if (fileNoticeTimer) {
+      window.clearTimeout(fileNoticeTimer);
+      fileNoticeTimer = undefined;
+    }
+    fileNotice = "";
+  }
+
+  function showFileNotice(message: string) {
+    clearFileNotice();
+    fileNotice = message;
+    fileNoticeTimer = window.setTimeout(() => {
+      if (fileNotice === message) {
+        fileNotice = "";
+      }
+      fileNoticeTimer = undefined;
+    }, 2800);
+  }
+
+  function lockLogFilesBodyHeight() {
+    if (!logFilesBody || logFilesBodyHeight !== null) return;
+
+    const height = logFilesBody.offsetHeight;
+    if (height > 0) {
+      logFilesBodyHeight = height;
+    }
+  }
+
+  async function settleLogFilesBodyHeight() {
+    if (logFilesBodyHeight === null) return;
+
+    await tick();
+    if (logFilesBody) {
+      const nextHeight = logFilesBody.scrollHeight;
+      if (nextHeight > 0) {
+        logFilesBodyHeight = nextHeight;
+        await delay(180);
+      }
+    }
+
+    logFilesBodyHeight = null;
   }
 
   function updateStickToTop() {
@@ -156,12 +206,9 @@
 
     const token = ++terminalClearToken;
     terminalClearing = true;
-
-    await delay(120);
-    if (token !== terminalClearToken) return;
     logRows = [];
 
-    await delay(180);
+    await delay(120);
     if (token !== terminalClearToken) return;
     terminalClearing = false;
   }
@@ -195,33 +242,54 @@
     return path.replace(/^\/data\/adb\/box\//, "box/");
   }
 
+  function fileBannerClass(tone: FileBanner["tone"]): string {
+    const base = "flex min-h-9 items-center border px-3 py-2 text-xs shadow-lg backdrop-blur rounded-lg";
+    if (tone === "error") return `${base} border-red-300 bg-red-50/95 text-red-700 dark:border-red-900/50 dark:bg-red-950/90 dark:text-red-300`;
+    return `${base} border-amber-300 bg-amber-50/95 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/90 dark:text-amber-300`;
+  }
+
   async function refreshLogFiles() {
+    lockLogFilesBodyHeight();
+
     try {
       logFileLoading = true;
       fileError = "";
+      clearFileNotice();
       logReport = await actionApi.getLogSizeReport();
     } catch (e) {
       fileError = e instanceof Error ? e.message : String(e);
     } finally {
+      await settleLogFilesBodyHeight();
       logFileLoading = false;
     }
+  }
+
+  function clearResultSkippedActiveLog(stdout: string): boolean {
+    return stdout.split(/\r?\n/).some((line) => line.startsWith("file\tskipped\t"));
   }
 
   async function clearLogFiles() {
     if (clearingFiles) return;
 
-    const minimumClearAnimation = delay(520);
+    const minimumClearAnimation = delay(180);
+    lockLogFilesBodyHeight();
 
     try {
       clearingFiles = true;
       fileError = "";
-      await actionApi.clearLogFiles();
-      await refreshLogFiles();
+      clearFileNotice();
+      const result = await actionApi.clearLogFiles();
+      const nextReport = await actionApi.getLogSizeReport();
       await minimumClearAnimation;
+      logReport = nextReport;
+      if (clearResultSkippedActiveLog(result.stdout)) {
+        showFileNotice("内核运行中，已保留当前日志文件");
+      }
     } catch (e) {
       await minimumClearAnimation;
       fileError = e instanceof Error ? e.message : String(e);
     } finally {
+      await settleLogFilesBodyHeight();
       clearingFiles = false;
     }
   }
@@ -251,6 +319,9 @@
 
   onDestroy(() => {
     terminalClearToken += 1;
+    if (fileNoticeTimer) {
+      window.clearTimeout(fileNoticeTimer);
+    }
   });
 </script>
 
@@ -323,22 +394,18 @@
           placeholder="搜索日志内容"
         />
       </label>
-
-      {#if streamError}
-        <div class="border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-300" in:fly={{ y: -6, duration: 180, easing: cubicOut }}>
-          {streamError}
-        </div>
-      {/if}
     </div>
 
     <div class="relative h-[52vh] min-h-96 overflow-hidden bg-black font-mono text-xs leading-relaxed">
-      {#if terminalClearing}
-        <div class="pointer-events-none absolute inset-0 z-20 overflow-hidden bg-black/35" in:fade={{ duration: 90 }} out:fade={{ duration: 140 }}>
-          <div class="terminal-clear-sweep"></div>
+      {#if streamError}
+        <div class="pointer-events-none absolute left-3 right-3 top-3 z-20" in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
+          <div class="border border-red-900/50 bg-red-950/90 px-3 py-2 text-xs text-red-300 shadow-sm backdrop-blur rounded-lg">
+            {streamError}
+          </div>
         </div>
       {/if}
 
-      <div class="h-full overflow-y-auto p-3 custom-scrollbar {terminalClearing ? 'terminal-buffer-clearing' : ''}" bind:this={logsContainer} onscroll={updateStickToTop}>
+      <div class="h-full overflow-y-auto p-3 custom-scrollbar" bind:this={logsContainer} onscroll={updateStickToTop}>
         {#if logRows.length === 0}
           <div class="flex h-full items-center justify-center text-zinc-700" in:fade={{ duration: 160 }}>Waiting for logs...</div>
         {:else if filteredLogRows.length === 0}
@@ -346,7 +413,7 @@
         {:else}
           <div class="space-y-2">
             {#each filteredLogRows as row (row.id)}
-              <div class="border-b border-zinc-900 pb-2 text-zinc-300" in:fly={{ x: -6, duration: 120, easing: cubicOut }} out:fly={{ x: 10, duration: 140, easing: cubicOut }}>
+              <div class="border-b border-zinc-900 pb-2 text-zinc-300" animate:flip={{ duration: 120, easing: cubicOut }} in:fade={{ duration: 90 }} out:fade={{ duration: 90 }}>
                 <div class="flex items-center justify-between gap-3">
                   <span class={typeClass(row.type)}>{row.type}</span>
                   <time class="shrink-0 select-none text-zinc-600">[{row.time}]</time>
@@ -380,41 +447,27 @@
         </button>
         <button
           type="button"
-          class="inline-flex items-center gap-2 h-8 px-3 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 text-xs font-bold transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-60 rounded-lg {clearingFiles
-            ? 'scale-[0.98] border-rose-300 bg-rose-100 dark:border-rose-800/70 dark:bg-rose-950/50'
+          class="inline-flex h-8 min-w-22 items-center justify-center gap-2 border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-600 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/50 rounded-lg {clearingFiles
+            ? 'border-rose-300 bg-rose-100 dark:border-rose-800/70 dark:bg-rose-950/50'
             : ''}"
           onclick={clearLogFiles}
           disabled={clearingFiles || logReport.totalBytes === 0}
           title="清理日志"
         >
-          <Trash2 size={14} class={clearingFiles ? "clear-icon-active" : ""} />
-          {#key clearingFiles}
-            <span in:fade={{ duration: 90 }} out:fade={{ duration: 70 }}>{clearingFiles ? "清理中" : "清理日志"}</span>
-          {/key}
+          <Trash2 size={14} class={clearingFiles ? "opacity-70" : ""} />
+          <span>{clearingFiles ? "正在清理" : "清理日志"}</span>
         </button>
       </div>
     </div>
 
-    <div class="p-4 space-y-3">
-      {#if fileError}
-        {#key fileError}
-          <div transition:slide={{ duration: 220, easing: cubicOut }}>
-            <div
-              class="border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-700 dark:text-red-300"
-              in:fly={{ y: -6, duration: 180, easing: cubicOut }}
-              out:fade={{ duration: 120 }}
-            >
-              {fileError}
-            </div>
-          </div>
-        {/key}
-      {/if}
-
-      <div class="relative overflow-hidden">
+    <div class="p-4">
+      <div
+        class="relative min-h-24 overflow-hidden transition-[height] duration-200 ease-out"
+        bind:this={logFilesBody}
+        style={logFilesBodyHeight === null ? "" : `height: ${logFilesBodyHeight}px`}
+      >
         {#if clearingFiles && sortedLogFiles.length > 0}
-          <div class="pointer-events-none absolute inset-0 z-10 overflow-hidden" in:fade={{ duration: 100 }} out:fade={{ duration: 140 }}>
-            <div class="file-clear-sweep"></div>
-          </div>
+          <div class="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-zinc-950/35" in:fade={{ duration: 100 }} out:fade={{ duration: 120 }}></div>
         {/if}
 
         {#if logFileLoading && sortedLogFiles.length === 0}
@@ -425,11 +478,12 @@
           <div class="space-y-2">
             {#each sortedLogFiles as file (file.path)}
               <article
-                class="grid grid-cols-[minmax(0,1fr)_auto] gap-3 items-center border border-slate-200 dark:border-zinc-800 bg-slate-50/70 dark:bg-zinc-950/40 px-3 py-2 transition-all duration-300 rounded-lg {clearingFiles
-                  ? 'translate-x-1 opacity-50'
+                class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border border-slate-200 bg-slate-50/70 px-3 py-2 transition-opacity duration-150 dark:border-zinc-800 dark:bg-zinc-950/40 rounded-lg {clearingFiles
+                  ? 'opacity-55'
                   : ''}"
-                in:fly={{ y: 6, duration: 160, easing: cubicOut }}
-                out:fly={{ x: 16, duration: 180, easing: cubicOut }}
+                animate:flip={{ duration: 140, easing: cubicOut }}
+                in:fade={{ duration: 100 }}
+                out:fade={{ duration: 100 }}
               >
                 <div class="min-w-0">
                   <div class="truncate font-mono text-xs text-slate-800 dark:text-zinc-200" title={file.path}>{displayPath(file.path)}</div>
@@ -443,6 +497,14 @@
       </div>
     </div>
   </section>
+
+  {#if fileBanner}
+    <div class="file-banner-toast" in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
+      <div class={fileBannerClass(fileBanner.tone)}>
+        <span class="block truncate">{fileBanner.message}</span>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -469,76 +531,14 @@
     word-break: break-word;
   }
 
-  .terminal-buffer-clearing {
-    animation: terminal-buffer-clear 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .terminal-clear-sweep {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: -35%;
-    height: 34%;
-    background: linear-gradient(to bottom, transparent, rgba(63, 63, 70, 0.26), rgba(244, 244, 245, 0.08), transparent);
-    animation: terminal-clear-sweep 320ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  }
-
-  .file-clear-sweep {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(105deg, transparent 0%, rgba(244, 63, 94, 0.06) 35%, rgba(244, 63, 94, 0.22) 48%, rgba(244, 63, 94, 0.06) 61%, transparent 100%);
-    transform: translateX(-100%);
-    animation: file-clear-sweep 620ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
-  }
-
-  .clear-icon-active {
-    animation: clear-icon-active 520ms cubic-bezier(0.22, 1, 0.36, 1) infinite;
-    transform-origin: center;
-  }
-
-  @keyframes terminal-buffer-clear {
-    0% {
-      opacity: 1;
-      transform: translateY(0);
-    }
-    45% {
-      opacity: 0.35;
-      transform: translateY(3px);
-    }
-    100% {
-      opacity: 0.12;
-      transform: translateY(6px);
-    }
-  }
-
-  @keyframes terminal-clear-sweep {
-    from {
-      transform: translateY(0);
-    }
-    to {
-      transform: translateY(420%);
-    }
-  }
-
-  @keyframes file-clear-sweep {
-    from {
-      transform: translateX(-100%);
-    }
-    to {
-      transform: translateX(100%);
-    }
-  }
-
-  @keyframes clear-icon-active {
-    0%,
-    100% {
-      transform: rotate(0deg) scale(1);
-    }
-    45% {
-      transform: rotate(-8deg) scale(0.94);
-    }
-    70% {
-      transform: rotate(8deg) scale(1.04);
-    }
+  .file-banner-toast {
+    position: fixed;
+    left: max(1rem, var(--ksu-insets-left, 0px));
+    right: max(1rem, var(--ksu-insets-right, 0px));
+    bottom: calc(var(--app-bottombar-height, 4rem) + 1rem);
+    z-index: 50;
+    max-width: 48rem;
+    margin-inline: auto;
+    pointer-events: none;
   }
 </style>
