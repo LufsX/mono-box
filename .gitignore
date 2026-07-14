@@ -15,6 +15,7 @@ Thumbs.db
 # Tmp
 .tmp
 *.log
+.pnpm-store
 
 # Env
 .env

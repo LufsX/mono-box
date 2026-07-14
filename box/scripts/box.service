@@ -111,8 +111,49 @@ prepare_permission() {
     chown -R "${core_user_group}" "${box_path}" > /dev/null 2>&1 || true
 }
 
+active_config_file() {
+    local active_file="${box_path}/${bin_name}/.mono-box/active-profile"
+    local profile_dir="${box_path}/${bin_name}/.mono-box/profiles"
+    local active_name=""
+    local profile_file
+
+    if [ -f "${active_file}" ]; then
+        active_name="$(cat "${active_file}" 2> /dev/null)"
+    fi
+
+    case "${active_name}" in
+        "" | *"/"* | *".."*)
+            active_name=""
+            ;;
+    esac
+
+    if [ -n "${active_name}" ]; then
+        profile_file="${profile_dir}/${active_name}"
+        if [ -f "${profile_file}" ]; then
+            printf "%s" "${profile_file}"
+            return 0
+        fi
+    fi
+
+    printf "%s" "${box_path}/${bin_name}/config.yaml"
+}
+
 check_config() {
-    if "${bin_path}" -t -d "${box_path}/${bin_name}" > "${run_path}/check.log" 2>&1; then
+    local config_file
+    local default_config="${box_path}/${bin_name}/config.yaml"
+    local config_args="-d ${box_path}/${bin_name}"
+
+    config_file="$(active_config_file)"
+    if [ ! -f "${config_file}" ]; then
+        log Error "missing configuration file: ${config_file}"
+        return 1
+    fi
+
+    # Default config lives under the -d directory as config.yaml; omit -f so
+    # mihomo reads it natively. Only pass -f for switched profiles.
+    [ "${config_file}" = "${default_config}" ] || config_args="${config_args} -f ${config_file}"
+
+    if "${bin_path}" -t ${config_args} > "${run_path}/check.log" 2>&1; then
         return 0
     fi
 
@@ -142,6 +183,10 @@ running_pid() {
 }
 
 start_service() {
+    local config_file
+    local default_config="${box_path}/${bin_name}/config.yaml"
+    local config_args
+
     if pid="$(running_pid)"; then
         echo -n "${pid}" > "${pid_file}"
         log Info "${bin_name} is already running. ( PID: ${pid} )"
@@ -162,12 +207,21 @@ start_service() {
         return 1
     }
 
+    config_file="$(active_config_file)"
     log Info "starting ${bin_name} service."
 
-    if command -v busybox > /dev/null 2>&1; then
-        nohup busybox setuidgid "${core_user_group}" "${bin_path}" -d "${box_path}/${bin_name}" > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+    # Default config lives under the -d directory as config.yaml; omit -f so
+    # mihomo reads it natively. Only pass -f for switched profiles.
+    if [ "${config_file}" = "${default_config}" ]; then
+        config_args="-d ${box_path}/${bin_name}"
     else
-        nohup "${bin_path}" -d "${box_path}/${bin_name}" > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        config_args="-d ${box_path}/${bin_name} -f ${config_file}"
+    fi
+
+    if command -v busybox > /dev/null 2>&1; then
+        nohup busybox setuidgid "${core_user_group}" "${bin_path}" ${config_args} > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+    else
+        nohup "${bin_path}" ${config_args} > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
     fi
 
     sleep 1

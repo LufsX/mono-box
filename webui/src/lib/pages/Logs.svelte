@@ -1,13 +1,15 @@
 <script lang="ts">
   import { flip } from "svelte/animate";
   import { onDestroy, onMount, tick } from "svelte";
-  import { fade } from "svelte/transition";
+  import { fade, fly, scale } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
-  import { Pause, Play, RefreshCw, ScrollText, Search, Trash2 } from "@lucide/svelte";
+  import { Eye, FolderOpen, Pause, Play, RefreshCw, ScrollText, Search, Trash2, X } from "@lucide/svelte";
   import { actionApi, clashApi } from "$lib/api";
   import type { ClashLogEntry, ClashLogLevel } from "$lib/api";
-  import type { LogSizeReport } from "$lib/api/action";
+  import type { LogFileInfo, LogSizeReport } from "$lib/api/action";
   import Select from "$lib/components/common/Select.svelte";
+  import NoticeBanner from "$lib/components/common/NoticeBanner.svelte";
+  import { useModalHistory } from "$lib/modal-history";
   import { formatBytes } from "$lib/utils";
 
   type LogLevelFilter = "all" | ClashLogLevel;
@@ -22,6 +24,8 @@
     { value: "warning", label: "Warning" },
     { value: "error", label: "Error" },
   ];
+  const LOG_DETAIL_RENDER_DELAY_MS = 240;
+  const LOG_DETAIL_MAX_BYTES = 10 * 1024 * 1024;
 
   let selectedLevel = $state<LogLevelFilter>("all");
   let searchQuery = $state("");
@@ -33,8 +37,18 @@
   let logFileLoading = $state(false);
   let clearingFiles = $state(false);
   let terminalClearing = $state(false);
+  let openingLogPath = $state("");
   let fileError = $state("");
   let fileNotice = $state("");
+  let detailOpen = $state(false);
+  let detailFile = $state<LogFileInfo | null>(null);
+  let detailLoading = $state(false);
+  let detailRenderReady = $state(false);
+  let detailError = $state("");
+  let detailContent = $state("");
+  let detailHeaderHeight = $state(0);
+  let detailContentHeight = $state(0);
+  let viewportHeight = $state(0);
   let logsContainer: HTMLElement | undefined = $state();
   let logFilesBody: HTMLElement | undefined = $state();
   let logFilesBodyHeight = $state<number | null>(null);
@@ -42,11 +56,21 @@
   let rowId = 0;
   let socketEpoch = 0;
   let terminalClearToken = 0;
+  let detailToken = 0;
+  let detailLoadToken = 0;
   let fileNoticeTimer: ReturnType<typeof window.setTimeout> | undefined;
   let logSocket: WebSocket | null = null;
 
+  const detailModalHistory = useModalHistory("log-detail", () => {
+    resetLogDetail();
+  });
   const sortedLogFiles = $derived([...logReport.files].sort((a, b) => b.size - a.size || a.path.localeCompare(b.path)));
   const fileBanner = $derived<FileBanner | null>(fileError ? { tone: "error", message: fileError } : fileNotice ? { tone: "notice", message: fileNotice } : null);
+  const detailDisplayName = $derived(detailFile ? displayLogName(detailFile.path) : "日志详情");
+  const detailRelativePath = $derived(detailFile ? displayPath(detailFile.path) : "");
+  const detailTooLarge = $derived(detailFile ? detailFile.size >= LOG_DETAIL_MAX_BYTES : false);
+  const detailBodyMaxHeight = $derived(Math.max(0, Math.floor(viewportHeight * 0.72) - detailHeaderHeight - 2));
+  const detailBodyTargetHeight = $derived(Math.min(detailContentHeight, detailBodyMaxHeight));
   const filteredLogRows = $derived.by(() => {
     const keyword = searchQuery.trim().toLowerCase();
     if (!keyword) return logRows;
@@ -242,10 +266,90 @@
     return path.replace(/^\/data\/adb\/box\//, "box/");
   }
 
-  function fileBannerClass(tone: FileBanner["tone"]): string {
-    const base = "flex min-h-9 items-center border px-3 py-2 text-xs shadow-lg backdrop-blur rounded-lg";
-    if (tone === "error") return `${base} border-red-300 bg-red-50/95 text-red-700 dark:border-red-900/50 dark:bg-red-950/90 dark:text-red-300`;
-    return `${base} border-amber-300 bg-amber-50/95 text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/90 dark:text-amber-300`;
+  function displayLogName(path: string): string {
+    const parts = displayPath(path).split("/").filter(Boolean);
+    return parts[parts.length - 1] || path;
+  }
+
+  function displayLogDirectory(path: string): string {
+    const parts = displayPath(path).split("/").filter(Boolean);
+    parts.pop();
+    return parts.join("/") || displayPath(path);
+  }
+
+  function resetLogDetail() {
+    detailToken += 1;
+    detailLoadToken += 1;
+    detailOpen = false;
+    detailFile = null;
+    detailLoading = false;
+    detailRenderReady = false;
+    detailError = "";
+    detailContent = "";
+    detailContentHeight = 0;
+  }
+
+  async function loadLogDetail(file: LogFileInfo, token: number) {
+    const loadToken = ++detailLoadToken;
+    detailLoading = true;
+    detailError = "";
+
+    try {
+      const content = await actionApi.readLogFile(file.path);
+      if (token !== detailToken || loadToken !== detailLoadToken) return;
+      detailContent = content;
+    } catch (e) {
+      if (token !== detailToken || loadToken !== detailLoadToken) return;
+      detailError = e instanceof Error ? e.message : String(e);
+    } finally {
+      if (token === detailToken && loadToken === detailLoadToken) {
+        detailLoading = false;
+      }
+    }
+  }
+
+  function openLogDetail(file: LogFileInfo) {
+    const token = ++detailToken;
+
+    detailFile = { ...file };
+    detailLoading = false;
+    detailRenderReady = false;
+    detailError = "";
+    detailContent = "";
+    detailContentHeight = 0;
+
+    if (!detailOpen) {
+      detailModalHistory.push();
+    }
+    detailOpen = true;
+
+    window.setTimeout(() => {
+      if (token !== detailToken || !detailOpen) return;
+      detailRenderReady = true;
+      if (file.size < LOG_DETAIL_MAX_BYTES) {
+        void loadLogDetail(file, token);
+      }
+    }, LOG_DETAIL_RENDER_DELAY_MS);
+  }
+
+  function closeLogDetail() {
+    detailModalHistory.close();
+  }
+
+  async function openLogFileLocation(file: LogFileInfo) {
+    if (clearingFiles || openingLogPath) return;
+
+    try {
+      openingLogPath = file.path;
+      fileError = "";
+      clearFileNotice();
+      await actionApi.openLogFileLocation(file.path);
+      showFileNotice(import.meta.env.MODE === "production" ? "已打开日志文件位置" : "已下载日志文件");
+    } catch (e) {
+      fileError = e instanceof Error ? e.message : String(e);
+    } finally {
+      openingLogPath = "";
+    }
   }
 
   async function refreshLogFiles() {
@@ -319,11 +423,15 @@
 
   onDestroy(() => {
     terminalClearToken += 1;
+    detailToken += 1;
+    detailLoadToken += 1;
     if (fileNoticeTimer) {
       window.clearTimeout(fileNoticeTimer);
     }
   });
 </script>
+
+<svelte:window bind:innerHeight={viewportHeight} />
 
 <main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-4">
   <div class="flex items-center justify-between gap-3">
@@ -461,11 +569,7 @@
     </div>
 
     <div class="p-4">
-      <div
-        class="relative min-h-24 overflow-hidden transition-[height] duration-200 ease-out"
-        bind:this={logFilesBody}
-        style={logFilesBodyHeight === null ? "" : `height: ${logFilesBodyHeight}px`}
-      >
+      <div class="relative min-h-24 overflow-hidden transition-[height] duration-200 ease-out" bind:this={logFilesBody} style={logFilesBodyHeight === null ? "" : `height: ${logFilesBodyHeight}px`}>
         {#if clearingFiles && sortedLogFiles.length > 0}
           <div class="pointer-events-none absolute inset-0 z-10 bg-white/45 dark:bg-zinc-950/35" in:fade={{ duration: 100 }} out:fade={{ duration: 120 }}></div>
         {/if}
@@ -486,10 +590,22 @@
                 out:fade={{ duration: 100 }}
               >
                 <div class="min-w-0">
-                  <div class="truncate font-mono text-xs text-slate-800 dark:text-zinc-200" title={file.path}>{displayPath(file.path)}</div>
-                  <div class="mt-0.5 truncate text-[11px] text-slate-400 dark:text-zinc-600">{file.path}</div>
+                  <div class="truncate font-mono text-xs text-slate-800 dark:text-zinc-200" title={file.path}>{displayLogName(file.path)}</div>
+                  <div class="mt-0.5 truncate text-[11px] text-slate-400 dark:text-zinc-600">{displayLogDirectory(file.path)}</div>
                 </div>
-                <div class="font-mono text-xs font-bold text-slate-700 dark:text-zinc-300">{formatBytes(file.size)}</div>
+                <div class="flex items-center gap-2">
+                  <div class="min-w-16 text-right font-mono text-xs font-bold text-slate-700 dark:text-zinc-300">{formatBytes(file.size)}</div>
+                  <button
+                    type="button"
+                    class="inline-flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-800 rounded-lg"
+                    onclick={() => openLogDetail(file)}
+                    disabled={clearingFiles}
+                    title={`查看 ${displayPath(file.path)}`}
+                    aria-label={`查看 ${displayLogName(file.path)}`}
+                  >
+                    <Eye size={14} />
+                  </button>
+                </div>
               </article>
             {/each}
           </div>
@@ -499,9 +615,92 @@
   </section>
 
   {#if fileBanner}
-    <div class="file-banner-toast" in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
-      <div class={fileBannerClass(fileBanner.tone)}>
-        <span class="block truncate">{fileBanner.message}</span>
+    <NoticeBanner tone={fileBanner.tone} message={fileBanner.message} />
+  {/if}
+
+  {#if detailOpen}
+    <div
+      class="fixed inset-0 z-50 bg-slate-950/55 p-3 md:p-6 flex items-center justify-center"
+      role="button"
+      tabindex="0"
+      in:fade={{ duration: 180 }}
+      out:fade={{ duration: 140 }}
+      onclick={(event) => {
+        if (event.target === event.currentTarget) closeLogDetail();
+      }}
+      onkeydown={(event) => {
+        if (event.target === event.currentTarget && (event.key === "Escape" || event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          closeLogDetail();
+        }
+      }}
+    >
+      <div
+        class="mx-auto w-full flex max-h-[72dvh] max-w-3xl flex-col border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 rounded-xl overflow-hidden"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="log-detail-title"
+        in:fly={{ y: 10, duration: 220, easing: cubicOut }}
+        out:scale={{ duration: 150, easing: cubicOut, start: 0.98 }}
+      >
+        <div bind:offsetHeight={detailHeaderHeight} class="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-300 dark:border-zinc-700 shrink-0">
+          <div class="min-w-0">
+            <div id="log-detail-title" class="text-sm font-bold text-slate-900 dark:text-slate-100 truncate">{detailDisplayName}</div>
+            {#if detailRelativePath}
+              <div class="mt-0.5 font-mono text-[11px] text-slate-500 dark:text-zinc-500 truncate">{detailRelativePath}</div>
+            {/if}
+          </div>
+          <div class="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:cursor-wait disabled:opacity-50 rounded-lg"
+              onclick={() => {
+                if (detailFile) void openLogFileLocation(detailFile);
+              }}
+              disabled={!detailFile || !!openingLogPath}
+              title="定位文件"
+              aria-label="定位日志文件"
+            >
+              <FolderOpen size={14} class={detailFile && openingLogPath === detailFile.path ? "opacity-50" : ""} />
+            </button>
+            <button
+              type="button"
+              class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors rounded-lg"
+              onclick={closeLogDetail}
+              title="关闭"
+              aria-label="关闭"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="min-h-0 shrink-0 overflow-hidden transition-[height] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+          style:height={detailBodyTargetHeight > 0 ? `${detailBodyTargetHeight}px` : undefined}
+        >
+          <div class="h-full overflow-auto custom-scrollbar">
+            <div bind:offsetHeight={detailContentHeight} class="flow-root min-w-full">
+              {#if !detailRenderReady}
+                <div class="py-12 text-center text-sm text-slate-500 dark:text-zinc-400">正在准备日志...</div>
+              {:else if detailTooLarge && detailFile}
+                <div class="m-4 border border-amber-300 bg-amber-50 px-3 py-3 text-xs text-amber-700 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300 rounded-lg">
+                  日志过大，无法在页面中打开。当前大小 {formatBytes(detailFile.size)}，限制 {formatBytes(LOG_DETAIL_MAX_BYTES)}。
+                </div>
+              {:else if detailLoading && !detailContent}
+                <div class="py-12 text-center text-sm text-slate-500 dark:text-zinc-400">正在读取日志...</div>
+              {:else if detailError}
+                <div class="m-4 border border-red-300 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-3 py-3 text-xs text-red-700 dark:text-red-300 rounded-lg">
+                  无法读取日志: {detailError}
+                </div>
+              {:else if detailFile && detailContent}
+                <pre class="log-detail-content m-0 w-max min-w-full px-4 py-3 font-mono text-xs leading-4.5 text-slate-700 dark:text-zinc-300">{detailContent}</pre>
+              {:else}
+                <div class="py-12 text-center text-sm text-slate-500 dark:text-zinc-400">日志为空</div>
+              {/if}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   {/if}
@@ -531,14 +730,9 @@
     word-break: break-word;
   }
 
-  .file-banner-toast {
-    position: fixed;
-    left: max(1rem, var(--ksu-insets-left, 0px));
-    right: max(1rem, var(--ksu-insets-right, 0px));
-    bottom: calc(var(--app-bottombar-height, 4rem) + 1rem);
-    z-index: 50;
-    max-width: 48rem;
-    margin-inline: auto;
-    pointer-events: none;
+  .log-detail-content {
+    contain: content;
+    tab-size: 2;
+    white-space: pre;
   }
 </style>

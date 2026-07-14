@@ -1,6 +1,7 @@
 import type { CommandResult, ModuleInfo } from "./clash.types";
 import { parseKeyValueText } from "./config-parser";
 import type { ConfigPort } from "./config-port";
+import type { MihomoConfigFile } from "./action";
 
 export interface LogFileInfo {
   path: string;
@@ -11,6 +12,13 @@ export interface LogSizeReport {
   files: LogFileInfo[];
   totalBytes: number;
   count: number;
+}
+
+interface MockMihomoProfile {
+  name: string;
+  content: string;
+  sourceUrl: string;
+  updatedAt: number;
 }
 
 const MOCK_MODULE_PROP = [
@@ -43,6 +51,25 @@ let mockBoxConfig = [
   'target_wifi_list=""',
 ].join("\n");
 
+let mockMihomoCurrentConfig = ["mixed-port: 7890", "allow-lan: false", "mode: rule", "log-level: info", "proxies: []", "proxy-groups: []", "rules:", "  - MATCH,DIRECT"].join("\n");
+
+let mockMihomoProfiles: MockMihomoProfile[] = [
+  {
+    name: "daily.yaml",
+    content: mockMihomoCurrentConfig,
+    sourceUrl: "https://example.com/mihomo/daily.yaml",
+    updatedAt: Date.now() - 1000 * 60 * 18,
+  },
+  {
+    name: "direct-only.yaml",
+    content: ["mixed-port: 7890", "mode: direct", "log-level: warning", "rules:", "  - MATCH,DIRECT"].join("\n"),
+    sourceUrl: "",
+    updatedAt: Date.now() - 1000 * 60 * 60 * 24,
+  },
+];
+
+let mockActiveMihomoProfile: string | null = "daily.yaml";
+
 function ok(stdout = "", stderr = ""): CommandResult {
   return {
     errno: 0,
@@ -54,6 +81,81 @@ function ok(stdout = "", stderr = ""): CommandResult {
 function latestMockLogPath(): string | undefined {
   const sortedFiles = [...mockLogFiles].sort((a, b) => a.path.localeCompare(b.path));
   return sortedFiles[sortedFiles.length - 1]?.path;
+}
+
+function buildMockLogContent(file: LogFileInfo, minLength: number): string {
+  const parts: string[] = [];
+  let index = 1;
+  let length = 0;
+
+  while (length < minLength) {
+    const line = `[2026-06-06 10:${String(index % 60).padStart(2, "0")}:00][info] ${file.path} mock log entry ${index}`;
+    parts.push(line);
+    length += line.length + 1;
+    if (index % 13 === 0) {
+      const warningLine = `[2026-06-06 10:${String(index % 60).padStart(2, "0")}:01][warning] provider update took ${index * 3}ms`;
+      parts.push(warningLine);
+      length += warningLine.length + 1;
+    }
+    index += 1;
+  }
+
+  return parts.join("\n");
+}
+
+function logFileName(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  return parts[parts.length - 1] || "mono-box.log";
+}
+
+function sanitizeMihomoConfigName(value: string): string {
+  const rawName = value.split(/[\\/]/).filter(Boolean).pop() || "config";
+  let name = rawName.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!name || name === "." || name === "..") {
+    name = "config";
+  }
+  if (!/\.(ya?ml)$/i.test(name)) {
+    name = `${name}.yaml`;
+  }
+  return name;
+}
+
+function inferMihomoConfigNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return sanitizeMihomoConfigName(parsed.pathname.split("/").filter(Boolean).pop() || "remote-config.yaml");
+  } catch {
+    return "remote-config.yaml";
+  }
+}
+
+function upsertMockMihomoProfile(profile: MockMihomoProfile): MockMihomoProfile {
+  const index = mockMihomoProfiles.findIndex((item) => item.name === profile.name);
+  if (index === -1) {
+    mockMihomoProfiles = [...mockMihomoProfiles, profile];
+    return profile;
+  }
+
+  mockMihomoProfiles[index] = profile;
+  return profile;
+}
+
+function toMihomoConfigFile(profile: MockMihomoProfile): MihomoConfigFile {
+  return {
+    kind: "profile",
+    name: profile.name,
+    path: `/data/adb/box/mihomo/.mono-box/profiles/${profile.name}`,
+    size: new TextEncoder().encode(profile.content).length,
+    updatedAt: profile.updatedAt,
+    sourceUrl: profile.sourceUrl,
+    active: profile.name === mockActiveMihomoProfile,
+  };
+}
+
+function assertHttpUrl(url: string): void {
+  if (!/^https?:\/\//i.test(url.trim())) {
+    throw new Error("only HTTP or HTTPS URLs are allowed");
+  }
 }
 
 export async function runActionScript(actionCmd: string): Promise<CommandResult> {
@@ -104,6 +206,157 @@ export async function getLogSizeReport(): Promise<LogSizeReport> {
 
 export async function clearLogFiles(): Promise<CommandResult> {
   return runActionScript("clear_logs");
+}
+
+export async function readLogFile(path: string): Promise<string> {
+  await new Promise((resolve) => setTimeout(resolve, 160));
+  const file = mockLogFiles.find((item) => item.path === path);
+  if (!file) {
+    throw new Error("Read log file failed: file not found");
+  }
+
+  return buildMockLogContent(file, file.size).slice(0, file.size);
+}
+
+export async function openLogFileLocation(path: string): Promise<CommandResult> {
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  const file = mockLogFiles.find((item) => item.path === path);
+  if (!file) {
+    throw new Error("Open log file location failed: file not found");
+  }
+
+  if (typeof document !== "undefined" && typeof URL !== "undefined") {
+    const content = buildMockLogContent(file, file.size).slice(0, file.size);
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = logFileName(file.path);
+    anchor.style.display = "none";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  return ok(`Mock downloaded: ${file.path}`);
+}
+
+export async function listMihomoConfigFiles(): Promise<MihomoConfigFile[]> {
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  const current: MihomoConfigFile = {
+    kind: "current",
+    name: "config.yaml",
+    path: "/data/adb/box/mihomo/config.yaml",
+    size: new TextEncoder().encode(mockMihomoCurrentConfig).length,
+    updatedAt: Date.now() - 1000 * 60 * 60,
+    sourceUrl: "",
+    active: mockActiveMihomoProfile === null,
+  };
+
+  return [current, ...mockMihomoProfiles.map(toMihomoConfigFile).sort((a, b) => a.name.localeCompare(b.name))];
+}
+
+export async function importMihomoConfigFile(name: string, content: string): Promise<MihomoConfigFile> {
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  const normalizedContent = content.replace(/\r\n/g, "\n");
+  if (!normalizedContent.trim()) {
+    throw new Error("config file is empty");
+  }
+
+  const profile = upsertMockMihomoProfile({
+    name: sanitizeMihomoConfigName(name),
+    content: normalizedContent,
+    sourceUrl: "",
+    updatedAt: Date.now(),
+  });
+
+  if (profile.name === mockActiveMihomoProfile) {
+    mockMihomoCurrentConfig = profile.content;
+  }
+
+  return toMihomoConfigFile(profile);
+}
+
+export async function downloadMihomoConfigFromUrl(url: string, name: string): Promise<MihomoConfigFile> {
+  await new Promise((resolve) => setTimeout(resolve, 520));
+  const sourceUrl = url.trim();
+  assertHttpUrl(sourceUrl);
+
+  const profileName = sanitizeMihomoConfigName(name.trim() || inferMihomoConfigNameFromUrl(sourceUrl));
+  const profile = upsertMockMihomoProfile({
+    name: profileName,
+    content: ["mixed-port: 7890", "allow-lan: false", "mode: rule", "log-level: info", `# Mock downloaded from ${sourceUrl}`, "rules:", "  - MATCH,DIRECT"].join("\n"),
+    sourceUrl,
+    updatedAt: Date.now(),
+  });
+
+  if (profile.name === mockActiveMihomoProfile) {
+    mockMihomoCurrentConfig = profile.content;
+  }
+
+  return toMihomoConfigFile(profile);
+}
+
+export async function updateMihomoConfigFromUrl(name: string): Promise<MihomoConfigFile> {
+  await new Promise((resolve) => setTimeout(resolve, 480));
+  const profileName = sanitizeMihomoConfigName(name);
+  const profile = mockMihomoProfiles.find((item) => item.name === profileName);
+  if (!profile) {
+    throw new Error("config profile not found");
+  }
+  if (!profile.sourceUrl) {
+    throw new Error("config profile has no source URL");
+  }
+
+  profile.content = `${profile.content}\n# Mock updated at ${new Date().toISOString()}`;
+  profile.updatedAt = Date.now();
+
+  if (profile.name === mockActiveMihomoProfile) {
+    mockMihomoCurrentConfig = profile.content;
+  }
+
+  return toMihomoConfigFile(profile);
+}
+
+export async function switchMihomoConfigFile(name: string, kind: "current" | "profile" = "profile"): Promise<MihomoConfigFile> {
+  await new Promise((resolve) => setTimeout(resolve, 260));
+  if (kind === "current") {
+    mockActiveMihomoProfile = null;
+    return {
+      kind: "current",
+      name: "config.yaml",
+      path: "/data/adb/box/mihomo/config.yaml",
+      size: new TextEncoder().encode(mockMihomoCurrentConfig).length,
+      updatedAt: Date.now(),
+      sourceUrl: "",
+      active: true,
+    };
+  }
+
+  const profileName = sanitizeMihomoConfigName(name);
+  const profile = mockMihomoProfiles.find((item) => item.name === profileName);
+  if (!profile) {
+    throw new Error("config profile not found");
+  }
+
+  mockActiveMihomoProfile = profile.name;
+  mockMihomoCurrentConfig = profile.content;
+  return toMihomoConfigFile(profile);
+}
+
+export async function deleteMihomoConfigFile(name: string): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 220));
+  const profileName = sanitizeMihomoConfigName(name);
+  const profile = mockMihomoProfiles.find((item) => item.name === profileName);
+  if (!profile) {
+    throw new Error("config profile not found");
+  }
+  if (profile.name === mockActiveMihomoProfile) {
+    throw new Error("active config cannot be deleted");
+  }
+
+  mockMihomoProfiles = mockMihomoProfiles.filter((item) => item.name !== profileName);
 }
 
 export async function setEdgeToEdge(_enabled: boolean): Promise<void> {

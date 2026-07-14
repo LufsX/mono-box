@@ -6,9 +6,11 @@
   import AboutSettings from "$lib/components/settings/AboutSettings.svelte";
   import BoxConfigSettings from "$lib/components/settings/BoxConfigSettings.svelte";
   import CollapsibleSection from "$lib/components/settings/CollapsibleSection.svelte";
+  import MihomoConfigSettings from "$lib/components/settings/MihomoConfigSettings.svelte";
   import WebUiSettings from "$lib/components/settings/WebUiSettings.svelte";
 
   type SettingsSectionState = {
+    mihomoConfig: boolean;
     boxConfig: boolean;
     webUi: boolean;
     about: boolean;
@@ -16,6 +18,7 @@
 
   const SETTINGS_SECTION_STORAGE_KEY = "mono-box.settings-sections";
   const DEFAULT_SETTINGS_SECTION_STATE: SettingsSectionState = {
+    mihomoConfig: true,
     boxConfig: true,
     webUi: true,
     about: true,
@@ -40,6 +43,7 @@
   let homeLayoutError = $state("");
   let homeLayoutSaveResetTimer: ReturnType<typeof setTimeout> | undefined;
   let homeLayoutResetStateTimer: ReturnType<typeof setTimeout> | undefined;
+  let mihomoConfigOpen = $state(initialSettingsSectionState.mihomoConfig);
   let boxConfigOpen = $state(initialSettingsSectionState.boxConfig);
   let webUiSettingsOpen = $state(initialSettingsSectionState.webUi);
   let aboutOpen = $state(initialSettingsSectionState.about);
@@ -51,6 +55,7 @@
 
     const raw = input as Partial<Record<keyof SettingsSectionState, unknown>>;
     return {
+      mihomoConfig: typeof raw.mihomoConfig === "boolean" ? raw.mihomoConfig : DEFAULT_SETTINGS_SECTION_STATE.mihomoConfig,
       boxConfig: typeof raw.boxConfig === "boolean" ? raw.boxConfig : DEFAULT_SETTINGS_SECTION_STATE.boxConfig,
       webUi: typeof raw.webUi === "boolean" ? raw.webUi : DEFAULT_SETTINGS_SECTION_STATE.webUi,
       about: typeof raw.about === "boolean" ? raw.about : DEFAULT_SETTINGS_SECTION_STATE.about,
@@ -76,11 +81,13 @@
     }
 
     const state = {
+      mihomoConfig: next.mihomoConfig ?? mihomoConfigOpen,
       boxConfig: next.boxConfig ?? boxConfigOpen,
       webUi: next.webUi ?? webUiSettingsOpen,
       about: next.about ?? aboutOpen,
     } satisfies SettingsSectionState;
 
+    mihomoConfigOpen = state.mihomoConfig;
     boxConfigOpen = state.boxConfig;
     webUiSettingsOpen = state.webUi;
     aboutOpen = state.about;
@@ -231,6 +238,10 @@
 </script>
 
 <div class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
+  <CollapsibleSection title="Mihomo 配置管理" controls="mihomo-config-settings" bind:open={mihomoConfigOpen} onchange={(open) => saveSettingsSectionState({ mihomoConfig: open })}>
+    <MihomoConfigSettings />
+  </CollapsibleSection>
+
   <CollapsibleSection title="box.config 配置" controls="box-config-settings" bind:open={boxConfigOpen} onchange={(open) => saveSettingsSectionState({ boxConfig: open })}>
     <BoxConfigSettings bind:boxConfig {boxConfigSaved} {boxConfigLoading} bind:boxConfigError {clashApiChecking} {clashApiCheckOk} onsave={saveBoxConfig} oncheckapi={checkClashApiVersion} />
   </CollapsibleSection>
