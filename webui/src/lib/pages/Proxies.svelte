@@ -10,6 +10,7 @@
   import type { ClashProxyMap, ClashProxyProviderMap, ProxyMode } from "$lib/api";
   import { classifyConnectionError } from "$lib/api/error-utils";
   import KernelAuthNotice from "$lib/components/shared/KernelAuthNotice.svelte";
+  import NoticeBanner from "$lib/components/common/NoticeBanner.svelte";
   import { loadHomeLayoutSettings } from "$lib/settings";
   import { useModalHistory } from "$lib/modal-history";
   import { formatBytes } from "$lib/utils";
@@ -183,10 +184,13 @@
   async function switchMode(mode: ClashMode) {
     if (mode === $currentMode) return;
     try {
+      error = "";
+      errorReason = "";
       await actions.switchClashMode(mode as ProxyMode);
       modeSelectValue = mode;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      errorReason = "";
       error = `切换模式失败: ${message}`;
       modeSelectValue = $currentMode;
     }
@@ -196,12 +200,15 @@
     const group = proxies?.[groupName];
     if (!group || group.type !== "Selector" || group.now === nodeName) return;
     try {
+      error = "";
+      errorReason = "";
       await clashApi.setOutbound(groupName, nodeName);
       if (proxies?.[groupName]) {
         proxies[groupName].now = nodeName;
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      errorReason = "";
       error = `切换策略失败: ${message}`;
     }
   }
@@ -253,10 +260,13 @@
     if (updatingProvider) return;
     updatingProvider = name;
     try {
+      error = "";
+      errorReason = "";
       await clashApi.updateProxyProvider(name);
       await loadData();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      errorReason = "";
       error = `更新 Provider 失败: ${message}`;
     } finally {
       updatingProvider = null;
@@ -278,10 +288,13 @@
     }, 220);
 
     try {
+      error = "";
+      errorReason = "";
       await clashApi.healthCheckProxyProvider(name);
       await loadData();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      errorReason = "";
       error = `Provider 测速失败: ${message}`;
     } finally {
       clearInterval(progressTimer);
@@ -329,9 +342,9 @@
 </script>
 
 <main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-4">
-  {#if !loading && error}
+  {#if !loading && error && errorReason}
     <div in:fade={{ duration: 180 }}>
-      <KernelAuthNotice reason={errorReason || "unreachable"} />
+      <KernelAuthNotice reason={errorReason} />
     </div>
   {:else}
     <section in:fly={{ y: 10, duration: 220, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 p-3 transition-colors rounded-xl">
@@ -597,14 +610,14 @@
             </button>
           </div>
         </div>
-        <div class="p-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div class="grid min-w-0 grid-cols-1 gap-2 overflow-y-auto p-4 sm:grid-cols-2">
           {#each sortedGroupNodes(openedGroup) as node (node.key)}
             {@const group = proxies?.[openedGroup]}
             {@const selected = group?.now === node.name}
             {@const nodeOwner = `node:${openedGroup}:${node.name}`}
             {@const nodeTesting = !!testingNodes[node.name]}
 
-            <div animate:flip={{ duration: 280, easing: quintOut }}>
+            <div class="min-w-0" animate:flip={{ duration: 280, easing: quintOut }}>
               <ProxyNodeTile
                 name={node.name}
                 type={node.type}
@@ -652,9 +665,9 @@
             <X size={14} />
           </button>
         </div>
-        <div class="p-4 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div class="grid min-w-0 grid-cols-1 gap-2 overflow-y-auto p-4 sm:grid-cols-2">
           {#if provider?.subscriptionInfo}
-            <div class="col-span-2 border border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-900 px-3 py-2 text-[11px] text-slate-600 dark:text-zinc-300 rounded-lg">
+            <div class="min-w-0 border border-slate-300 bg-slate-50 px-3 py-2 text-[11px] text-slate-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 sm:col-span-2 rounded-lg">
               <div class="flex items-center justify-between gap-2">
                 <span>已用流量</span>
                 <span class="font-mono">{formatBytes((provider.subscriptionInfo.Download || 0) + (provider.subscriptionInfo.Upload || 0))} / {formatBytes(provider.subscriptionInfo.Total || 0)}</span>
@@ -677,3 +690,7 @@
     </div>
   {/if}
 </main>
+
+{#if error && !errorReason}
+  <NoticeBanner tone="error" message={error} />
+{/if}
