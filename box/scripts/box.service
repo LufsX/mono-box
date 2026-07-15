@@ -141,7 +141,6 @@ active_config_file() {
 check_config() {
     local config_file
     local default_config="${box_path}/${bin_name}/config.yaml"
-    local config_args="-d ${box_path}/${bin_name}"
 
     config_file="$(active_config_file)"
     if [ ! -f "${config_file}" ]; then
@@ -149,12 +148,10 @@ check_config() {
         return 1
     fi
 
-    # Default config lives under the -d directory as config.yaml; omit -f so
-    # mihomo reads it natively. Only pass -f for switched profiles.
-    [ "${config_file}" = "${default_config}" ] || config_args="${config_args} -f ${config_file}"
-
-    if "${bin_path}" -t ${config_args} > "${run_path}/check.log" 2>&1; then
-        return 0
+    if [ "${config_file}" = "${default_config}" ]; then
+        "${bin_path}" -t -d "${box_path}/${bin_name}" > "${run_path}/check.log" 2>&1 && return 0
+    else
+        "${bin_path}" -t -d "${box_path}/${bin_name}" -f "${config_file}" > "${run_path}/check.log" 2>&1 && return 0
     fi
 
     log Error "configuration check failed, see ${run_path}/check.log"
@@ -185,7 +182,6 @@ running_pid() {
 start_service() {
     local config_file
     local default_config="${box_path}/${bin_name}/config.yaml"
-    local config_args
 
     if pid="$(running_pid)"; then
         echo -n "${pid}" > "${pid_file}"
@@ -210,18 +206,18 @@ start_service() {
     config_file="$(active_config_file)"
     log Info "starting ${bin_name} service."
 
-    # Default config lives under the -d directory as config.yaml; omit -f so
-    # mihomo reads it natively. Only pass -f for switched profiles.
-    if [ "${config_file}" = "${default_config}" ]; then
-        config_args="-d ${box_path}/${bin_name}"
-    else
-        config_args="-d ${box_path}/${bin_name} -f ${config_file}"
-    fi
-
     if command -v busybox > /dev/null 2>&1; then
-        nohup busybox setuidgid "${core_user_group}" "${bin_path}" ${config_args} > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        if [ "${config_file}" = "${default_config}" ]; then
+            nohup busybox setuidgid "${core_user_group}" "${bin_path}" -d "${box_path}/${bin_name}" > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        else
+            nohup busybox setuidgid "${core_user_group}" "${bin_path}" -d "${box_path}/${bin_name}" -f "${config_file}" > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        fi
     else
-        nohup "${bin_path}" ${config_args} > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        if [ "${config_file}" = "${default_config}" ]; then
+            nohup "${bin_path}" -d "${box_path}/${bin_name}" > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        else
+            nohup "${bin_path}" -d "${box_path}/${bin_name}" -f "${config_file}" > "${box_path}/${bin_name}/${bin_name}_$(date +%Y%m%d%H%M).log" 2> "${run_path}/error_${bin_name}.log" &
+        fi
     fi
 
     sleep 1

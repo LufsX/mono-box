@@ -1,7 +1,7 @@
 import type { CommandResult, ModuleInfo } from "./clash.types";
 import { parseKeyValueText } from "./config-parser";
 import type { ConfigPort } from "./config-port";
-import type { MihomoConfigFile } from "./action";
+import { normalizeMihomoConfigName, type MihomoConfigFile } from "./action";
 
 export interface LogFileInfo {
   path: string;
@@ -108,22 +108,10 @@ function logFileName(path: string): string {
   return parts[parts.length - 1] || "mono-box.log";
 }
 
-function sanitizeMihomoConfigName(value: string): string {
-  const rawName = value.split(/[\\/]/).filter(Boolean).pop() || "config";
-  let name = rawName.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
-  if (!name || name === "." || name === "..") {
-    name = "config";
-  }
-  if (!/\.(ya?ml)$/i.test(name)) {
-    name = `${name}.yaml`;
-  }
-  return name;
-}
-
 function inferMihomoConfigNameFromUrl(url: string): string {
   try {
     const parsed = new URL(url);
-    return sanitizeMihomoConfigName(parsed.pathname.split("/").filter(Boolean).pop() || "remote-config.yaml");
+    return normalizeMihomoConfigName(parsed.pathname.split("/").filter(Boolean).pop() || "remote-config.yaml");
   } catch {
     return "remote-config.yaml";
   }
@@ -265,7 +253,7 @@ export async function importMihomoConfigFile(name: string, content: string): Pro
   }
 
   const profile = upsertMockMihomoProfile({
-    name: sanitizeMihomoConfigName(name),
+    name: normalizeMihomoConfigName(name),
     content: normalizedContent,
     sourceUrl: "",
     updatedAt: Date.now(),
@@ -283,7 +271,7 @@ export async function downloadMihomoConfigFromUrl(url: string, name: string): Pr
   const sourceUrl = url.trim();
   assertHttpUrl(sourceUrl);
 
-  const profileName = sanitizeMihomoConfigName(name.trim() || inferMihomoConfigNameFromUrl(sourceUrl));
+  const profileName = normalizeMihomoConfigName(name.trim() || inferMihomoConfigNameFromUrl(sourceUrl));
   const profile = upsertMockMihomoProfile({
     name: profileName,
     content: ["mixed-port: 7890", "allow-lan: false", "mode: rule", "log-level: info", `# Mock downloaded from ${sourceUrl}`, "rules:", "  - MATCH,DIRECT"].join("\n"),
@@ -300,7 +288,7 @@ export async function downloadMihomoConfigFromUrl(url: string, name: string): Pr
 
 export async function updateMihomoConfigFromUrl(name: string): Promise<MihomoConfigFile> {
   await new Promise((resolve) => setTimeout(resolve, 480));
-  const profileName = sanitizeMihomoConfigName(name);
+  const profileName = normalizeMihomoConfigName(name);
   const profile = mockMihomoProfiles.find((item) => item.name === profileName);
   if (!profile) {
     throw new Error("config profile not found");
@@ -334,7 +322,7 @@ export async function switchMihomoConfigFile(name: string, kind: "current" | "pr
     };
   }
 
-  const profileName = sanitizeMihomoConfigName(name);
+  const profileName = normalizeMihomoConfigName(name);
   const profile = mockMihomoProfiles.find((item) => item.name === profileName);
   if (!profile) {
     throw new Error("config profile not found");
@@ -347,7 +335,7 @@ export async function switchMihomoConfigFile(name: string, kind: "current" | "pr
 
 export async function deleteMihomoConfigFile(name: string): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 220));
-  const profileName = sanitizeMihomoConfigName(name);
+  const profileName = normalizeMihomoConfigName(name);
   const profile = mockMihomoProfiles.find((item) => item.name === profileName);
   if (!profile) {
     throw new Error("config profile not found");

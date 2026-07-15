@@ -25,6 +25,7 @@ const clashStores = createClashStores(clashApi);
 export const { stores, actions } = clashStores;
 
 export { parseBoxConfig, upsertConfigValue, readConfigValue } from "./config-parser";
+export { normalizeMihomoConfigName } from "./action";
 export { ALL_PROXY_MODES, buildToggleModeOrder, createDefaultBoxConfigFormValues, type BoxConfigFormValues } from "./box-config-form";
 export type { MihomoConfigFile, MihomoConfigFileKind } from "./action";
 

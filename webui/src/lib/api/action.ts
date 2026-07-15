@@ -29,6 +29,20 @@ export interface MihomoConfigFile {
   active: boolean;
 }
 
+export function normalizeMihomoConfigName(value: string): string {
+  const rawName = value.split(/[\\/]/).filter(Boolean).pop() || "config";
+  let name = rawName
+    .normalize("NFC")
+    .replace(/[\u0000-\u001f\u007f:*?"<>|]+/g, "_")
+    .replace(/\.{2,}/g, "_")
+    .trim()
+    .replace(/^_+|_+$/g, "");
+
+  if (!name || name === "." || name === "..") name = "config";
+  if (!/\.ya?ml$/i.test(name)) name = `${name}.yaml`;
+  return name;
+}
+
 const MODULE_ROOT = "/data/adb/modules/mono_box";
 const BOX_ROOT = "/data/adb/box";
 const BOX_CONFIG_PATH = "/data/adb/box/scripts/box.config";
@@ -208,7 +222,6 @@ function buildMihomoConfigShellHelpers(): string[] {
     "}",
     "sanitize_profile_name() {",
     '  raw="${1##*/}"',
-    '  raw=$(printf "%s" "$raw" | tr -c "A-Za-z0-9._-" "_" | sed "s/^_*//; s/_*$//")',
     '  case "$raw" in ""|"."|"..") raw="config" ;; esac',
     '  case "$raw" in *.yaml|*.yml) ;; *) raw="${raw}.yaml" ;; esac',
     '  printf "%s" "$raw"',
@@ -340,7 +353,7 @@ export async function listMihomoConfigFiles(): Promise<MihomoConfigFile[]> {
 }
 
 export async function importMihomoConfigFile(name: string, content: string): Promise<MihomoConfigFile> {
-  const encodedName = toBase64Utf8(name);
+  const encodedName = toBase64Utf8(normalizeMihomoConfigName(name));
   const encodedContent = toBase64Utf8(content.replace(/\r\n/g, "\n"));
   const result = await runRootShellScript([
     `encoded_name=${encodedName}`,
@@ -381,7 +394,7 @@ export async function importMihomoConfigFile(name: string, content: string): Pro
 
 export async function downloadMihomoConfigFromUrl(url: string, name: string): Promise<MihomoConfigFile> {
   const encodedUrl = toBase64Utf8(url.trim());
-  const encodedName = toBase64Utf8(name.trim() || "remote-config.yaml");
+  const encodedName = toBase64Utf8(normalizeMihomoConfigName(name.trim() || "remote-config.yaml"));
   const result = await runRootShellScript([
     `encoded_url=${encodedUrl}`,
     `encoded_name=${encodedName}`,
@@ -415,7 +428,7 @@ export async function downloadMihomoConfigFromUrl(url: string, name: string): Pr
 }
 
 export async function updateMihomoConfigFromUrl(name: string): Promise<MihomoConfigFile> {
-  const encodedName = toBase64Utf8(name);
+  const encodedName = toBase64Utf8(normalizeMihomoConfigName(name));
   const result = await runRootShellScript([
     `encoded_name=${encodedName}`,
     ...buildMihomoConfigShellHelpers(),
@@ -450,7 +463,7 @@ export async function updateMihomoConfigFromUrl(name: string): Promise<MihomoCon
 }
 
 export async function switchMihomoConfigFile(name: string, kind: MihomoConfigFileKind = "profile"): Promise<MihomoConfigFile> {
-  const encodedName = toBase64Utf8(name);
+  const encodedName = toBase64Utf8(normalizeMihomoConfigName(name));
   const encodedKind = toBase64Utf8(kind);
   const result = await runRootShellScript([
     `encoded_name=${encodedName}`,
@@ -492,7 +505,7 @@ export async function switchMihomoConfigFile(name: string, kind: MihomoConfigFil
 }
 
 export async function deleteMihomoConfigFile(name: string): Promise<void> {
-  const encodedName = toBase64Utf8(name);
+  const encodedName = toBase64Utf8(normalizeMihomoConfigName(name));
   const result = await runRootShellScript([
     `encoded_name=${encodedName}`,
     ...buildMihomoConfigShellHelpers(),

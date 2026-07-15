@@ -4,7 +4,7 @@
   import { cubicOut, quintOut } from "svelte/easing";
   import { fade, fly, slide } from "svelte/transition";
   import { Check, CloudDownload, FileText, FileUp, Link, Plus, Power, RefreshCw, RotateCw, Search, Trash2, Upload, X } from "@lucide/svelte";
-  import { actionApi, type MihomoConfigFile } from "$lib/api";
+  import { actionApi, normalizeMihomoConfigName, type MihomoConfigFile } from "$lib/api";
   import { useModalHistory } from "$lib/modal-history";
   import { formatBytes } from "$lib/utils";
   import NoticeBanner from "$lib/components/common/NoticeBanner.svelte";
@@ -50,7 +50,7 @@
   const busy = $derived(loading || !!busyKey);
   const remoteConfigs = $derived(configs.filter((config) => !!config.sourceUrl));
   const activeAddPanelHeight = $derived(addMode === "url" ? urlPanelHeight : localPanelHeight);
-  const normalizedProposedName = $derived(normalizeProfileName(sourceName.trim() || (addMode === "url" && sourceUrl.trim() ? inferNameFromUrl(sourceUrl.trim()) : "")));
+  const normalizedProposedName = $derived(sourceName.trim() || (addMode === "url" && sourceUrl.trim()) ? normalizeMihomoConfigName(sourceName.trim() || inferNameFromUrl(sourceUrl.trim())) : "");
   const duplicateConfig = $derived(normalizedProposedName ? (configs.find((config) => config.kind === "profile" && config.name === normalizedProposedName) ?? null) : null);
   const visibleConfigs = $derived.by(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -95,15 +95,6 @@
     }, MODAL_EXIT_MS);
   }
 
-  function normalizeProfileName(value: string): string {
-    if (!value) return "";
-    const rawName = value.split(/[\\/]/).filter(Boolean).pop() || "config";
-    let name = rawName.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
-    if (!name || name === "." || name === "..") name = "config";
-    if (!/\.ya?ml$/i.test(name)) name = `${name}.yaml`;
-    return name;
-  }
-
   function clearErrorBanner() {
     if (banner?.tone !== "error") return;
     banner = null;
@@ -142,7 +133,7 @@
     try {
       const parsed = new URL(url);
       const name = parsed.pathname.split("/").filter(Boolean).pop();
-      return normalizeProfileName(name || "remote-config.yaml");
+      return normalizeMihomoConfigName(name || "remote-config.yaml");
     } catch {
       return "remote-config.yaml";
     }
@@ -259,7 +250,7 @@
       busyKey = "download";
       modalError = "";
       const overwrote = !!duplicateConfig;
-      const file = await actionApi.downloadMihomoConfigFromUrl(url, sourceName.trim() || inferNameFromUrl(url));
+      const file = await actionApi.downloadMihomoConfigFromUrl(url, normalizedProposedName || inferNameFromUrl(url));
       queueAfterModalExit(() => {
         applyConfigPatch(file);
         setSuccess(overwrote ? `已更新同名配置 ${file.name}` : `已添加 ${file.name}`);
@@ -291,7 +282,7 @@
       busyKey = "local";
       modalError = "";
       const content = await file.text();
-      const saved = await actionApi.importMihomoConfigFile(sourceName.trim() || file.name, content);
+      const saved = await actionApi.importMihomoConfigFile(normalizeMihomoConfigName(sourceName.trim() || file.name), content);
       const overwrote = configs.some((config) => config.kind === "profile" && config.name === saved.name);
       queueAfterModalExit(() => {
         applyConfigPatch(saved);
@@ -373,6 +364,11 @@
     actionError = "";
   }
 
+  async function yieldBeforeShellCommand() {
+    await tick();
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+
   async function confirmDelete() {
     if (!pendingAction || pendingAction.kind !== "delete" || busyKey) return;
     const target = pendingAction.config;
@@ -398,9 +394,11 @@
     try {
       busyKey = restart ? "switch:restart" : "switch:save";
       actionError = "";
+      await yieldBeforeShellCommand();
       const next = await actionApi.switchMihomoConfigFile(target.name, target.kind);
 
       if (restart) {
+        await yieldBeforeShellCommand();
         const result = await actionApi.runActionScript("restart");
         if (result.errno !== 0) {
           const detail = result.stderr.trim() || result.stdout.trim() || `errno ${result.errno}`;
@@ -505,11 +503,11 @@
   >
     <div bind:offsetHeight={configContentHeight} class="grid items-start">
       {#if configViewState === "loading"}
-        <div class="col-start-1 row-start-1 grid gap-2" in:fade={{ duration: 140 }} out:fade={{ duration: 100 }}>
-          {#each Array(2) as _}
-            <div class="h-18 animate-pulse border border-slate-200 bg-slate-100/70 dark:border-zinc-800 dark:bg-zinc-950/60 rounded-lg"></div>
-          {/each}
-        </div>
+        <div
+          class="col-start-1 row-start-1 h-18 animate-pulse border border-slate-200 bg-slate-100/70 dark:border-zinc-800 dark:bg-zinc-950/60 rounded-lg"
+          in:fade={{ duration: 140 }}
+          out:fade={{ duration: 100 }}
+        ></div>
       {:else if configViewState === "empty"}
         <div
           class="col-start-1 row-start-1 flex flex-col items-center border border-dashed border-slate-300 px-4 py-8 text-center dark:border-zinc-700 rounded-lg"
@@ -537,10 +535,10 @@
           没有匹配“{searchQuery.trim()}”的配置
         </div>
       {:else}
-        <div class="col-start-1 row-start-1 space-y-2">
+        <div class="col-start-1 row-start-1 min-w-0 space-y-2">
           {#each visibleConfigs as config, index (config.kind + ":" + config.name)}
             <article
-              class="relative overflow-hidden border p-2.5 transition-colors duration-200 {config.active
+              class="relative min-w-0 max-w-full overflow-hidden border p-2.5 transition-colors duration-200 {config.active
                 ? 'border-emerald-400 bg-emerald-50/70 dark:border-emerald-800 dark:bg-emerald-950/20'
                 : 'border-slate-300 bg-white hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-950/50 dark:hover:bg-zinc-900/70'} rounded-lg"
               animate:flip={{ duration: 200, easing: quintOut }}
@@ -548,14 +546,16 @@
               out:fade={{ duration: 100 }}
             >
               {#if config.active}
-                <span class="absolute inset-y-0 left-0 w-0.5 bg-emerald-500" aria-hidden="true"></span>
+                <span class="absolute inset-y-0 left-0 w-0.5 bg-emerald-500" aria-hidden="true" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }}></span>
               {/if}
 
-              <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-                <p class="max-w-full truncate text-sm font-bold text-slate-900 dark:text-slate-100" title={config.name}>{config.name}</p>
+              <div class="flex min-h-5 min-w-0 items-center gap-1.5">
+                <p class="min-w-0 flex-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100" title={config.name}>{config.name}</p>
                 {#if config.active}
                   <span
                     class="inline-flex shrink-0 items-center gap-1 border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 rounded-md"
+                    in:fly={{ x: 5, duration: 180, easing: cubicOut }}
+                    out:fade={{ duration: 120 }}
                   >
                     <Check size={10} />
                     已选择
@@ -566,14 +566,14 @@
                 </span>
               </div>
 
-              <div class="mt-1.5 flex items-center justify-between gap-2">
-                <div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-zinc-400">
-                  <span class="tabular-nums">{formatBytes(config.size)}</span>
-                  <span class="text-slate-300 dark:text-zinc-600">·</span>
-                  <span>{formatUpdatedAt(config.updatedAt)}</span>
+              <div class="mt-1.5 flex min-h-7 min-w-0 items-center justify-between gap-2 overflow-hidden">
+                <div class="flex min-w-0 flex-1 items-center gap-x-2 overflow-hidden whitespace-nowrap text-[11px] text-slate-500 dark:text-zinc-400">
+                  <span class="shrink-0 tabular-nums">{formatBytes(config.size)}</span>
+                  <span class="shrink-0 text-slate-300 dark:text-zinc-600">·</span>
+                  <span class="shrink-0">{formatUpdatedAt(config.updatedAt)}</span>
                   {#if config.sourceUrl}
-                    <span class="text-slate-300 dark:text-zinc-600">·</span>
-                    <span class="inline-flex min-w-0 max-w-full items-center gap-1" title={config.sourceUrl}>
+                    <span class="shrink-0 text-slate-300 dark:text-zinc-600">·</span>
+                    <span class="inline-flex min-w-0 flex-1 basis-32 items-center gap-1 overflow-hidden" title={config.sourceUrl}>
                       <Link size={10} class="shrink-0" />
                       <span class="min-w-0 truncate">{config.sourceUrl}</span>
                     </span>
@@ -581,7 +581,7 @@
                 </div>
 
                 {#if config.sourceUrl || !config.active}
-                  <div class="flex shrink-0 items-center gap-1.5">
+                  <div class="flex shrink-0 items-center gap-1.5" in:fly={{ x: 6, duration: 180, easing: cubicOut }} out:fade={{ duration: 120 }}>
                     {#if config.sourceUrl}
                       <button
                         type="button"
@@ -603,6 +603,8 @@
                         class="inline-flex h-7 w-7 items-center justify-center border border-rose-200 bg-rose-50 text-rose-600 transition-colors hover:bg-rose-100 disabled:cursor-wait disabled:opacity-50 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/40 rounded-lg"
                         aria-label={`删除 ${config.name}`}
                         title="删除"
+                        in:fly={{ x: 5, duration: 160, easing: cubicOut }}
+                        out:fade={{ duration: 100 }}
                       >
                         <Trash2 size={13} />
                       </button>
@@ -614,6 +616,8 @@
                         onclick={() => openActionModal("switch", config)}
                         disabled={busy}
                         class="inline-flex h-7 items-center justify-center gap-1 border border-slate-800 bg-slate-800 px-2.5 text-[11px] font-bold text-white transition-colors hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50 dark:border-slate-300 dark:bg-slate-200 dark:text-zinc-900 dark:hover:bg-slate-300 rounded-lg"
+                        in:fly={{ x: 5, duration: 180, easing: cubicOut }}
+                        out:fade={{ duration: 110 }}
                       >
                         <Power size={12} />
                         应用
