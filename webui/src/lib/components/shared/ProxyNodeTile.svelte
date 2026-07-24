@@ -8,6 +8,7 @@
     selected = false,
     selectable = false,
     testing = false,
+    failed = false,
     onSelect,
     onTest,
   }: {
@@ -17,6 +18,7 @@
     selected?: boolean;
     selectable?: boolean;
     testing?: boolean;
+    failed?: boolean;
     onSelect?: () => void;
     onTest?: (event: MouseEvent) => void;
   } = $props();
@@ -29,7 +31,7 @@
     return { text: "text-rose-600 dark:text-rose-400", dot: "bg-rose-500" };
   }
 
-  const style = $derived(latencyStyle(latency));
+  const style = $derived(failed ? { text: "text-rose-600 dark:text-rose-400", dot: "bg-rose-500" } : latencyStyle(latency));
 </script>
 
 <div
@@ -52,7 +54,7 @@
 >
   <div class="flex items-center gap-1.5 min-w-0">
     <span class={`w-1.5 h-1.5 shrink-0 ${style.dot} rounded-lg`}></span>
-    <span class="min-w-0 flex-1 truncate pl-0.5 text-sm font-semibold text-slate-800 dark:text-slate-200">{name}</span>
+    <span class="min-w-0 flex-1 break-words pl-0.5 text-sm font-semibold leading-5 text-slate-800 dark:text-slate-200">{name}</span>
     {#if selected}
       <Check size={13} class="text-emerald-600 dark:text-emerald-400 shrink-0" />
     {/if}
@@ -62,11 +64,14 @@
     <button
       class={`text-[10px] font-mono font-bold px-1 border border-slate-300 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/80 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors ${style.text} rounded`}
       onclick={onTest}
+      disabled={testing}
       title="点击测速"
     >
       <span class="inline-block min-w-10 text-center tabular-nums transition-opacity duration-150 {testing ? 'opacity-85' : 'opacity-100'}">
         {#if testing}
           测试中
+        {:else if failed}
+          失败
         {:else}
           {latency ? `${latency} ms` : "-"}
         {/if}

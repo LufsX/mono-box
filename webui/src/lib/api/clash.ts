@@ -1,4 +1,6 @@
 import type { ConfigPort } from "./config-port";
+import { exec } from "kernelsu";
+import { loadStoredClashConfig, saveStoredClashConfig } from "./clash-config-storage";
 import { parseBoxConfig } from "./config-parser";
 import { getErrorMessage, classifyConnectionError } from "./error-utils";
 import type {
@@ -29,6 +31,7 @@ export type {
   MemoryData,
   TrafficData,
   ClashProxyHistory,
+  ClashProxyHealth,
   ClashProxy,
   ClashProxyMap,
   ClashProxyProvider,
@@ -57,10 +60,15 @@ const DEFAULT_WS_TOKEN = "1145141919810";
 
 export function createClashApi(configPort: ConfigPort): ClashApiPort {
   async function getClashConfig(): Promise<ClashConfig> {
+    const stored = loadStoredClashConfig();
+    if (stored) return stored;
+
     try {
       const content = await configPort.readBoxConfig();
       const parsed = parseBoxConfig(content);
-      return { port: parsed.clashApiPort, secret: parsed.clashApiSecret };
+      const config = { port: parsed.clashApiPort, secret: parsed.clashApiSecret };
+      saveStoredClashConfig(config);
+      return config;
     } catch (e) {
       console.error("Failed to get clash config:", e);
       return { port: 9090, secret: "" };
@@ -71,12 +79,12 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-
-    if (secret && secret.trim().length > 0) {
-      headers.Authorization = `Bearer ${secret.trim()}`;
-    }
-
+    if (secret?.trim()) headers.Authorization = `Bearer ${secret.trim()}`;
     return headers;
+  }
+
+  function quoteShellArgument(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
   }
 
   async function clashRequest<T>(method: string, path: string, data?: unknown, options?: { port?: number; secret?: string }): Promise<T> {
@@ -210,7 +218,7 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
   }
 
   async function setOutbound(selector: string, outbound: string): Promise<void> {
-    await clashRequest("PUT", `/proxies/${selector}`, { name: outbound });
+    await clashRequest("PUT", `/proxies/${encodeURIComponent(selector)}`, { name: outbound });
   }
 
   async function getProxies(): Promise<ClashProxyMap> {
@@ -218,11 +226,44 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
     return result?.proxies || {};
   }
 
-  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number }): Promise<number> {
+  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[] }): Promise<number> {
+    const config = await getClashConfig();
     const url = options?.url || "http://cp.cloudflare.com/generate_204";
-    const timeout = options?.timeout ?? 5000;
-    const result = await clashRequest<{ delay?: number }>("GET", `/proxies/${encodeURIComponent(name)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`);
-    return typeof result?.delay === "number" ? result.delay : 0;
+    const requestedTimeout = options?.timeout ?? 5000;
+    const timeout = Number.isFinite(requestedTimeout) ? Math.max(1, Math.trunc(requestedTimeout)) : 5000;
+    const commandTimeout = Math.ceil(timeout / 1000) + 2;
+    const encodedTestUrl = encodeURIComponent(url).replace(/%3A/gi, ":");
+    const candidates = [...new Set([name, ...(options?.aliases || [])].filter((candidate) => candidate.trim().length > 0))];
+    let lastResourceError = "";
+
+    for (const candidate of candidates) {
+      const endpoint = `http://127.0.0.1:${config.port}/proxies/${encodeURIComponent(candidate)}/delay?url=${encodedTestUrl}&timeout=${timeout}`;
+      const authOption = config.secret.trim() ? ` -H ${quoteShellArgument(`Authorization: Bearer ${config.secret.trim()}`)}` : "";
+      const response = await exec(`curl -sS --max-time ${commandTimeout}${authOption} ${quoteShellArgument(endpoint)}`);
+
+      if (response.errno !== 0) {
+        throw new Error(response.stderr.trim() || `curl exited with code ${response.errno}`);
+      }
+
+      let result: { delay?: number; message?: string };
+      try {
+        result = JSON.parse(response.stdout) as { delay?: number; message?: string };
+      } catch {
+        throw new Error("Clash API 返回格式异常");
+      }
+      if (result.message?.toLowerCase().includes("resource not found")) {
+        lastResourceError = result.message;
+        continue;
+      }
+      if (result.message?.toLowerCase().includes("error occurred in the delay test")) return 0;
+      if (result.message) throw new Error(result.message);
+      if (typeof result.delay !== "number" || !Number.isFinite(result.delay) || result.delay <= 0) {
+        throw new Error("Clash API 未返回有效延迟");
+      }
+      return result.delay;
+    }
+
+    throw new Error(`${lastResourceError || "Resource not found"}（已尝试: ${candidates.join(" / ")}）`);
   }
 
   async function getProxyProviders(): Promise<ClashProxyProviderMap> {
@@ -254,7 +295,7 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
   }
 
   async function getProxy(name: string): Promise<ClashProxyDetail> {
-    return clashRequest<ClashProxyDetail>("GET", `/proxies/${name}`);
+    return clashRequest<ClashProxyDetail>("GET", `/proxies/${encodeURIComponent(name)}`);
   }
 
   async function checkStatus(): Promise<CoreStatusResult> {

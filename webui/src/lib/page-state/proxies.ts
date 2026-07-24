@@ -1,7 +1,7 @@
 import type { ClashConfigs, ClashProxy, ClashProxyMap, ClashProxyProvider, ClashProxyProviderMap, ProxyMode } from "$lib/api";
 
 export type NodeSortType = "default" | "latency" | "name";
-export type GroupType = "Selector" | "URLTest" | "Fallback" | "LoadBalance";
+export type GroupType = "Selector" | "URLTest" | "Fallback" | "LoadBalance" | "Smart";
 export type ViewType = "proxies" | "providers";
 export type ClashMode = ProxyMode;
 
@@ -13,7 +13,7 @@ export interface ProxyNode {
   type: string;
 }
 
-export const GROUP_TYPES: GroupType[] = ["Selector", "URLTest", "Fallback", "LoadBalance"];
+export const GROUP_TYPES: GroupType[] = ["Selector", "URLTest", "Fallback", "LoadBalance", "Smart"];
 export const DEFAULT_TEST_URL = "http://cp.cloudflare.com/generate_204";
 
 export function formatProviderExpireDate(timestamp: number): string {
@@ -37,17 +37,45 @@ export function latencyBarClass(ms: number): string {
   return "bg-rose-500";
 }
 
-export function readNodeLatency(latencies: Record<string, number>, name: string): number {
-  return latencies[name] || 0;
+function compactProxyName(name: string): string {
+  return name.replace(/\s+/g, "");
 }
 
-export function groupNodes(proxies: ClashProxyMap | null, latencies: Record<string, number>, groupName: string): ProxyNode[] {
+export function readNodeLatency(latencies: Record<string, number>, name: string): number {
+  if (Object.prototype.hasOwnProperty.call(latencies, name)) return latencies[name];
+  const alias = compactProxyName(name);
+  return Object.prototype.hasOwnProperty.call(latencies, alias) ? latencies[alias] : 0;
+}
+
+export function buildProxyDetailMap(proxies: ClashProxyMap, providers: ClashProxyProviderMap): ClashProxyMap {
+  const details: ClashProxyMap = {};
+
+  for (const provider of Object.values(providers)) {
+    for (const proxy of provider.proxies || []) {
+      if (!proxy?.name) continue;
+      details[proxy.name] = { ...details[proxy.name], ...proxy };
+    }
+  }
+
+  for (const [name, proxy] of Object.entries(proxies)) {
+    details[name] = { ...details[name], ...proxy };
+  }
+
+  for (const proxy of Object.values(details)) {
+    const alias = compactProxyName(proxy.name);
+    if (alias && !details[alias]) details[alias] = proxy;
+  }
+
+  return details;
+}
+
+export function groupNodes(proxies: ClashProxyMap | null, details: ClashProxyMap, latencies: Record<string, number>, groupName: string): ProxyNode[] {
   const group = proxies?.[groupName];
   if (!group?.all) return [];
 
   return group.all
     .map((name, index) => {
-      const detail = proxies?.[name];
+      const detail = details[name] || details[compactProxyName(name)];
       return {
         key: `${groupName}:${index}:${name}`,
         name,
@@ -59,8 +87,14 @@ export function groupNodes(proxies: ClashProxyMap | null, latencies: Record<stri
     .filter((item) => item.name.trim().length > 0);
 }
 
-export function sortedGroupNodes(proxies: ClashProxyMap | null, latencies: Record<string, number>, groupSorts: Record<string, NodeSortType>, groupName: string): ProxyNode[] {
-  const nodes = groupNodes(proxies, latencies, groupName);
+export function sortedGroupNodes(
+  proxies: ClashProxyMap | null,
+  details: ClashProxyMap,
+  latencies: Record<string, number>,
+  groupSorts: Record<string, NodeSortType>,
+  groupName: string,
+): ProxyNode[] {
+  const nodes = groupNodes(proxies, details, latencies, groupName);
   const sort = groupSorts[groupName] || "default";
   if (sort === "default") return nodes;
 
@@ -75,9 +109,14 @@ export function sortedGroupNodes(proxies: ClashProxyMap | null, latencies: Recor
   });
 }
 
+export function isVisibleProxyGroup(proxy: ClashProxy | undefined): boolean {
+  if (!proxy || !GROUP_TYPES.includes(proxy.type as GroupType) || proxy.hidden === true) return false;
+  return proxy.type !== "Smart" || proxy.now?.trim().toLowerCase() !== "smart - select";
+}
+
 export function groupNames(proxies: ClashProxyMap | null): string[] {
   if (!proxies) return [];
-  const names = Object.keys(proxies).filter((name) => GROUP_TYPES.includes((proxies?.[name]?.type as GroupType) || "Selector"));
+  const names = Object.keys(proxies).filter((name) => isVisibleProxyGroup(proxies[name]));
   const globalOrder = proxies.GLOBAL?.all || [];
 
   return names.sort((a, b) => {
@@ -88,7 +127,40 @@ export function groupNames(proxies: ClashProxyMap | null): string[] {
 }
 
 export function providerNames(providers: ClashProxyProviderMap | null): string[] {
-  return Object.keys(providers || {}).filter((name) => providers?.[name]?.vehicleType !== "Compatible");
+  return Object.keys(providers || {}).filter((name) => providers?.[name]?.vehicleType.toLowerCase() !== "compatible");
+}
+
+export function resolveProxyApiName(providers: ClashProxyProviderMap | null, name: string): string {
+  const allProviders = Object.values(providers || {});
+  const realProviders = allProviders.filter((provider) => provider.vehicleType.toLowerCase() !== "compatible");
+
+  function findName(candidates: ClashProxyProvider[], compact: boolean): string | undefined {
+    const expected = compact ? compactProxyName(name) : name;
+    for (const provider of candidates) {
+      const match = (provider.proxies || []).find((proxy) => (compact ? compactProxyName(proxy.name) : proxy.name) === expected);
+      if (match) return match.name;
+    }
+    return undefined;
+  }
+
+  return findName(realProviders, false) || findName(realProviders, true) || findName(allProviders, false) || findName(allProviders, true) || name;
+}
+
+export function resolveProxyProviderName(providers: ClashProxyProviderMap | null, name: string, preferredName?: string): string | undefined {
+  if (!providers) return undefined;
+  if (preferredName && providers[preferredName]) return preferredName;
+
+  const allProviders = Object.values(providers);
+  const realProviders = allProviders.filter((provider) => provider.vehicleType.toLowerCase() !== "compatible");
+
+  function findProvider(candidates: ClashProxyProvider[], compact: boolean): string | undefined {
+    const expected = compact ? compactProxyName(name) : name;
+    return candidates.find((provider) =>
+      (provider.proxies || []).some((proxy) => (compact ? compactProxyName(proxy.name) : proxy.name) === expected),
+    )?.name;
+  }
+
+  return findProvider(realProviders, false) || findProvider(realProviders, true) || findProvider(allProviders, false) || findProvider(allProviders, true);
 }
 
 export function providerUsableNodes(providers: ClashProxyProviderMap | null, latencies: Record<string, number>, name: string): number {
@@ -129,13 +201,54 @@ export function syncRecord<T extends Record<string, unknown>>(target: T | null, 
 
 export function deriveLatencyMap(proxyData: ClashProxyMap): Record<string, number> {
   const nextLatency: Record<string, number> = {};
+  const latestByAlias: Record<string, { delay: number; timestamp: number; order: number }> = {};
+  let order = 0;
+
   for (const [name, item] of Object.entries(proxyData)) {
-    const history = item.history || [];
-    if (!history.length) continue;
-    const last = history[history.length - 1];
-    if (typeof last?.delay === "number") nextLatency[name] = last.delay;
+    const histories = [item.history || [], ...Object.values(item.extra || {}).map((health) => health.history || [])];
+    let latest: { delay: number; timestamp: number; order: number } | undefined;
+
+    for (const history of histories) {
+      for (const entry of history) {
+        if (typeof entry?.delay !== "number" || !Number.isFinite(entry.delay)) continue;
+        const parsedTime = Date.parse(entry.time);
+        const candidate = { delay: entry.delay, timestamp: Number.isFinite(parsedTime) ? parsedTime : 0, order: order++ };
+        if (!latest || candidate.timestamp > latest.timestamp || (candidate.timestamp === latest.timestamp && candidate.order > latest.order)) {
+          latest = candidate;
+        }
+      }
+    }
+
+    if (!latest) continue;
+    nextLatency[name] = latest.delay;
+    const alias = compactProxyName(name);
+    const aliasLatest = latestByAlias[alias];
+    if (!aliasLatest || latest.timestamp > aliasLatest.timestamp || (latest.timestamp === aliasLatest.timestamp && latest.order > aliasLatest.order)) {
+      latestByAlias[alias] = latest;
+    }
   }
+
+  for (const name of Object.keys(proxyData)) {
+    const alias = compactProxyName(name);
+    const latest = latestByAlias[alias];
+    if (!latest) continue;
+    nextLatency[name] = latest.delay;
+    nextLatency[alias] = latest.delay;
+  }
+
   return nextLatency;
+}
+
+export function deriveProviderLatencyMap(providers: ClashProxyProviderMap): Record<string, number> {
+  const latencies: Record<string, number> = {};
+
+  for (const provider of Object.values(providers)) {
+    for (const proxy of provider.proxies || []) {
+      Object.assign(latencies, deriveLatencyMap({ [proxy.name]: proxy }));
+    }
+  }
+
+  return latencies;
 }
 
 export function resolveProxyTestUrl(savedTestUrl: string, configData: ClashConfigs): string {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { clashApi, actionApi, createDefaultBoxConfigFormValues, getBoxConfigForm, saveBoxConfigForm } from "$lib/api";
+  import { clashApi, actionApi, createDefaultBoxConfigFormValues, getBoxConfigForm, saveBoxConfigForm, saveStoredClashConfig } from "$lib/api";
   import type { BoxConfigFormValues } from "$lib/api";
   import { getDefaultHomeLayoutSettings, loadHomeLayoutSettings, saveHomeLayoutSettings } from "$lib/settings";
   import AboutSettings from "$lib/components/settings/AboutSettings.svelte";
@@ -134,6 +134,7 @@
       boxConfigLoading = true;
       boxConfigError = "";
       boxConfig = await getBoxConfigForm();
+      saveStoredClashConfig({ port: boxConfig.clashApiPort, secret: boxConfig.clashApiSecret });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       boxConfigError = `无法读取 box.config 文件: ${message}`;
@@ -149,6 +150,7 @@
       boxConfigError = "";
 
       await saveBoxConfigForm(boxConfig);
+      saveStoredClashConfig({ port: boxConfig.clashApiPort, secret: boxConfig.clashApiSecret });
 
       triggerSavedState();
     } catch (e) {

@@ -19,8 +19,8 @@
 </script>
 
 <div class="notice-banner-toast" in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
-  <div class={`flex min-h-9 items-center border px-3 py-2 text-xs shadow-lg rounded-lg ${toneClass[tone]}`}>
-    <span class="block truncate">{message}</span>
+  <div class={`flex min-h-9 items-start border px-3 py-2 text-xs shadow-lg rounded-lg ${toneClass[tone]}`}>
+    <span class="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message}</span>
   </div>
 </div>
 

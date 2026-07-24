@@ -29,13 +29,42 @@ export interface ClashProxyHistory {
   delay: number;
 }
 
+export interface ClashProxyHealth {
+  alive: boolean;
+  history: ClashProxyHistory[];
+}
+
 export interface ClashProxy {
   name: string;
   type: string;
+  alive?: boolean;
   now?: string;
   all?: string[];
+  collectData?: boolean;
   history?: ClashProxyHistory[];
+  extra?: Record<string, ClashProxyHealth>;
+  id?: string;
+  "dialer-proxy"?: string;
+  emptyFallback?: string;
+  expectedStatus?: string;
+  fixed?: string;
+  hidden?: boolean;
+  icon?: string;
+  interface?: string;
+  mptcp?: boolean;
+  "policy-priority"?: string;
+  preferASN?: boolean;
+  "provider-name"?: string;
+  "routing-mark"?: number;
+  sampleRate?: number;
+  smux?: boolean;
+  testUrl?: string;
+  tfo?: boolean;
   udp?: boolean;
+  uot?: boolean;
+  useLightGBM?: boolean;
+  xudp?: boolean;
+  [key: string]: unknown;
 }
 
 export type ClashProxyMap = Record<string, ClashProxy>;
@@ -44,14 +73,17 @@ export interface ClashProxyProvider {
   name: string;
   type: string;
   vehicleType: string;
-  updatedAt: string;
-  proxies: { name: string; type: string }[];
+  updatedAt?: string;
+  proxies: ClashProxy[];
+  testUrl?: string;
+  expectedStatus?: string;
   subscriptionInfo?: {
     Download: number;
     Upload: number;
     Total: number;
     Expire: number;
   };
+  [key: string]: unknown;
 }
 
 export type ClashProxyProviderMap = Record<string, ClashProxyProvider>;
@@ -202,7 +234,7 @@ export interface ClashApiPort {
   createLogsWebSocket(level: ClashLogLevel | undefined, onMessage: (data: ClashLogEntry) => void, onError?: (error: Event) => void): Promise<WebSocket>;
   setOutbound(selector: string, outbound: string): Promise<void>;
   getProxies(): Promise<ClashProxyMap>;
-  testProxyDelay(name: string, options?: { url?: string; timeout?: number }): Promise<number>;
+  testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[] }): Promise<number>;
   getProxyProviders(): Promise<ClashProxyProviderMap>;
   getRuleProviders(): Promise<ClashRuleProviderMap>;
   updateRuleProvider(name: string): Promise<void>;

@@ -25,6 +25,7 @@ const clashStores = createClashStores(clashApi);
 export const { stores, actions } = clashStores;
 
 export { parseBoxConfig, upsertConfigValue, readConfigValue } from "./config-parser";
+export { loadStoredClashConfig, saveStoredClashConfig } from "./clash-config-storage";
 export { normalizeMihomoConfigName } from "./action";
 export { ALL_PROXY_MODES, buildToggleModeOrder, createDefaultBoxConfigFormValues, type BoxConfigFormValues } from "./box-config-form";
 export type { MihomoConfigFile, MihomoConfigFileKind } from "./action";
@@ -37,6 +38,7 @@ export type {
   MemoryData,
   TrafficData,
   ClashProxyHistory,
+  ClashProxyHealth,
   ClashProxy,
   ClashProxyMap,
   ClashProxyProvider,

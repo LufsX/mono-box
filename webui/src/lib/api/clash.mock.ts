@@ -25,6 +25,7 @@ export type {
   MemoryData,
   TrafficData,
   ClashProxyHistory,
+  ClashProxyHealth,
   ClashProxy,
   ClashProxyMap,
   ClashProxyProvider,
@@ -125,19 +126,58 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
       all: ["HK-A", "JP-A", "US-A", "SG-A"],
       udp: true,
     },
+    Smart: {
+      name: "Smart",
+      type: "Smart",
+      now: "Smart - Select",
+      all: ["HK-A", "JP-A", "US-A", "SG-A"],
+      collectData: false,
+      "policy-priority": "",
+      preferASN: false,
+      sampleRate: 1,
+      useLightGBM: true,
+      udp: true,
+    },
   };
 
   let mockProviders: ClashProxyProviderMap = {
+    default: {
+      name: "default",
+      type: "Proxy",
+      vehicleType: "Compatible",
+      updatedAt: "0001-01-01T00:00:00Z",
+      testUrl: "http://cp.cloudflare.com/generate_204",
+      expectedStatus: "*",
+      proxies: [
+        {
+          name: "DIRECT",
+          type: "Direct",
+          alive: true,
+          history: [{ time: new Date().toISOString(), delay: 24 }],
+          extra: {
+            "http://cp.cloudflare.com/generate_204": {
+              alive: true,
+              history: [{ time: new Date().toISOString(), delay: 24 }],
+            },
+          },
+          udp: true,
+        },
+        { name: "HK-A", type: "Shadowsocks", alive: true, history: [], extra: {}, udp: true },
+        { name: "JP-A", type: "Shadowsocks", alive: true, history: [], extra: {}, udp: true },
+      ],
+    },
     "Provider-A": {
       name: "Provider-A",
       type: "Proxy",
       vehicleType: "HTTP",
       updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      testUrl: "http://cp.cloudflare.com/generate_204",
+      expectedStatus: "*",
       proxies: [
-        { name: "HK-A", type: "Shadowsocks" },
-        { name: "JP-A", type: "Shadowsocks" },
-        { name: "US-A", type: "Shadowsocks" },
-        { name: "SG-A", type: "Shadowsocks" },
+        { name: "HK-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
+        { name: "JP-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
+        { name: "US-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
+        { name: "SG-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
       ],
       subscriptionInfo: {
         Download: 32 * 1024 * 1024 * 1024,
@@ -363,26 +403,38 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
     return mockProxies;
   }
 
-  async function testProxyDelay(name: string, _options?: { url?: string; timeout?: number }): Promise<number> {
-    if (!mockProxies[name]) {
-      return 0;
-    }
+  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[] }): Promise<number> {
+    const candidates = [...new Set([name, ...(options?.aliases || [])])];
+    const resolvedName =
+      candidates.find((candidate) => Boolean(mockProxies[candidate])) ||
+      candidates.find((candidate) => Object.values(mockProviders).some((provider) => (provider.proxies || []).some((proxy) => proxy.name === candidate)));
+    if (!resolvedName) throw new Error("Resource not found");
 
     const delay = randomInRange(32, 880);
-    const history = mockProxies[name].history ? [...(mockProxies[name].history as ClashProxyHistory[])] : [];
-    history.push({ time: new Date().toISOString(), delay });
+    const entry = { time: new Date().toISOString(), delay };
+    const appendHistory = (history: ClashProxyHistory[] | undefined) => [...(history || []), entry].slice(-12);
 
-    if (history.length > 12) {
-      history.splice(0, history.length - 12);
+    if (mockProxies[resolvedName]) {
+      mockProxies = {
+        ...mockProxies,
+        [resolvedName]: {
+          ...mockProxies[resolvedName],
+          history: appendHistory(mockProxies[resolvedName].history),
+        },
+      };
     }
 
-    mockProxies = {
-      ...mockProxies,
-      [name]: {
-        ...mockProxies[name],
-        history,
-      },
-    };
+    mockProviders = Object.fromEntries(
+      Object.entries(mockProviders).map(([providerName, provider]) => [
+        providerName,
+        {
+          ...provider,
+          proxies: (provider.proxies || []).map((proxy) =>
+            proxy.name === resolvedName ? { ...proxy, history: appendHistory(proxy.history) } : proxy,
+          ),
+        },
+      ]),
+    );
 
     return delay;
   }
@@ -434,10 +486,11 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
       await testProxyDelay(node.name);
     }
 
+    const updatedProvider = mockProviders[name];
     mockProviders = {
       ...mockProviders,
       [name]: {
-        ...provider,
+        ...updatedProvider,
         updatedAt: new Date().toISOString(),
       },
     };
@@ -462,7 +515,7 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
     const incomingSecret = (options?.secret ?? parsed.clashApiSecret).trim();
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    if (incomingSecret !== "") {
+    if (incomingSecret !== "" && incomingSecret !== "1145141919810") {
       return {
         ok: false,
         reason: "unauthorized",

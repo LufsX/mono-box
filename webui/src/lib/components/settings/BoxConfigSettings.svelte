@@ -235,7 +235,7 @@
         data-lpignore="true"
         disabled={boxConfigLoading}
         class="w-full px-3 pr-10 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors font-mono disabled:opacity-50 rounded-lg"
-        placeholder="留空表示无密钥"
+        placeholder="留空使用默认密钥"
       />
       <button
         type="button"
