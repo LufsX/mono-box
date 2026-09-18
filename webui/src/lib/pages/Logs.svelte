@@ -1,6 +1,6 @@
 <script lang="ts">
   import { flip } from "svelte/animate";
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, onMount, tick, untrack } from "svelte";
   import { fade, fly, scale } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { Eye, FolderOpen, Pause, Play, RefreshCw, ScrollText, Search, Trash2, X } from "@lucide/svelte";
@@ -14,7 +14,7 @@
 
   type LogLevelFilter = "all" | ClashLogLevel;
   type StreamState = "connecting" | "connected" | "closed" | "error";
-  type LogRow = ClashLogEntry & { id: number; time: string };
+  import { LOG_ROW_LIMIT, mergeLogRows, normalizeLogEntry, type LogRow } from "$lib/page-state/logs";
   type FileBanner = { tone: "error" | "notice"; message: string };
 
   const LEVEL_OPTIONS: { value: LogLevelFilter; label: string }[] = [
@@ -60,6 +60,37 @@
   let detailLoadToken = 0;
   let fileNoticeTimer: ReturnType<typeof window.setTimeout> | undefined;
   let logSocket: WebSocket | null = null;
+
+  let destroyed = false;
+  let pendingRows: LogRow[] = [];
+  let flushTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let connectTimer: ReturnType<typeof setTimeout> | undefined;
+  let retryCount = 0;
+  let detailRenderTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function discardPendingLogs() {
+    clearTimeout(flushTimer);
+    flushTimer = undefined;
+    pendingRows = [];
+  }
+
+  async function flushLogs() {
+    flushTimer = undefined;
+    if (destroyed || paused || terminalClearing) { pendingRows = []; return; }
+    const container = logsContainer;
+    const anchor = !stickToTop && container
+      ? [...container.querySelectorAll<HTMLElement>("[data-log-id]")].find((row) => row.getBoundingClientRect().bottom > container.getBoundingClientRect().top)
+      : undefined;
+    const offset = anchor?.getBoundingClientRect().top;
+    const follow = stickToTop;
+    logRows = mergeLogRows(logRows, pendingRows);
+    pendingRows = [];
+    await tick();
+    if (destroyed || !container || container !== logsContainer) return;
+    if (follow && stickToTop) container.scrollTop = 0;
+    else if (anchor?.isConnected && offset !== undefined) container.scrollTop += anchor.getBoundingClientRect().top - offset;
+  }
 
   const detailModalHistory = useModalHistory("log-detail", () => {
     resetLogDetail();
@@ -122,6 +153,7 @@
     if (logFilesBodyHeight === null) return;
 
     await tick();
+    if (destroyed) return;
     if (logFilesBody) {
       const nextHeight = logFilesBody.scrollHeight;
       if (nextHeight > 0) {
@@ -138,46 +170,52 @@
     stickToTop = logsContainer.scrollTop < 32;
   }
 
-  function normalizeLogEntry(data: ClashLogEntry): ClashLogEntry {
-    if (data && typeof data === "object") {
-      return {
-        type: typeof data.type === "string" ? data.type : "info",
-        payload: typeof data.payload === "string" ? data.payload : JSON.stringify(data),
-      };
-    }
-
-    return { type: "info", payload: String(data) };
+  function appendLog(data: ClashLogEntry) {
+    if (destroyed || paused || terminalClearing) return;
+    pendingRows.push({ ...normalizeLogEntry(data), id: rowId++, time: timeNow() });
+    if (pendingRows.length > LOG_ROW_LIMIT) pendingRows.splice(0, pendingRows.length - LOG_ROW_LIMIT);
+    if (flushTimer === undefined) flushTimer = setTimeout(() => void flushLogs(), 100);
   }
 
-  function appendLog(data: ClashLogEntry) {
-    if (paused || terminalClearing) return;
-
-    const entry = normalizeLogEntry(data);
-    logRows.unshift({
-      ...entry,
-      id: rowId,
-      time: timeNow(),
-    });
-    rowId += 1;
-
-    if (logRows.length > 600) {
-      logRows.splice(600);
-    }
-    logRows = logRows;
+  function scheduleReconnect(token: number) {
+    if (destroyed || token !== socketEpoch || retryTimer !== undefined) return;
+    clearTimeout(connectTimer);
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      if (!destroyed && token === socketEpoch) void connectLogStream(selectedLevel);
+    }, Math.min(30000, 1000 * 2 ** Math.min(retryCount++, 5)));
   }
 
   function closeLogSocket() {
     if (!logSocket) return;
     const socket = logSocket;
     logSocket = null;
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    socket.onmessage = null;
     socket.close();
   }
 
   async function connectLogStream(level: LogLevelFilter) {
+    if (destroyed) return;
     const token = ++socketEpoch;
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+    clearTimeout(connectTimer);
+    discardPendingLogs();
     closeLogSocket();
     streamState = "connecting";
     streamError = "";
+    connectTimer = setTimeout(() => {
+      if (token !== socketEpoch || destroyed) return;
+      // Invalidate a socket factory that may still be waiting for configuration.
+      socketEpoch++;
+      closeLogSocket();
+      streamState = "error";
+      streamError = "连接 Clash 日志流超时";
+      scheduleReconnect(socketEpoch);
+    }, 10000);
 
     try {
       const socket = await clashApi.createLogsWebSocket(
@@ -190,6 +228,7 @@
           if (token !== socketEpoch) return;
           streamState = "error";
           streamError = "无法连接 Clash 日志流";
+          scheduleReconnect(token);
         },
       );
 
@@ -201,6 +240,11 @@
       logSocket = socket;
       socket.onopen = () => {
         if (token !== socketEpoch) return;
+        clearTimeout(connectTimer);
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
+        retryCount = 0;
+        streamError = "";
         streamState = "connected";
       };
       socket.onclose = () => {
@@ -208,20 +252,31 @@
         if (streamState !== "error") {
           streamState = "closed";
         }
+        scheduleReconnect(token);
       };
 
       if (socket.readyState === WebSocket.OPEN) {
+        clearTimeout(connectTimer);
+        retryCount = 0;
         streamState = "connected";
+      } else if (socket.readyState === WebSocket.CLOSED) {
+        streamState = "closed";
+        scheduleReconnect(token);
       }
     } catch (e) {
       if (token !== socketEpoch) return;
       streamState = "error";
       streamError = e instanceof Error ? e.message : String(e);
+      scheduleReconnect(token);
     }
   }
 
   function disconnectLogStream() {
     socketEpoch += 1;
+    clearTimeout(retryTimer);
+    clearTimeout(connectTimer);
+    retryTimer = undefined;
+    discardPendingLogs();
     closeLogSocket();
   }
 
@@ -230,6 +285,7 @@
 
     const token = ++terminalClearToken;
     terminalClearing = true;
+    discardPendingLogs();
     logRows = [];
 
     await delay(120);
@@ -278,6 +334,7 @@
   }
 
   function resetLogDetail() {
+    clearTimeout(detailRenderTimer);
     detailToken += 1;
     detailLoadToken += 1;
     detailOpen = false;
@@ -323,7 +380,8 @@
     }
     detailOpen = true;
 
-    window.setTimeout(() => {
+    clearTimeout(detailRenderTimer);
+    detailRenderTimer = window.setTimeout(() => {
       if (token !== detailToken || !detailOpen) return;
       detailRenderReady = true;
       if (file.size < LOG_DETAIL_MAX_BYTES) {
@@ -344,24 +402,27 @@
       fileError = "";
       clearFileNotice();
       await actionApi.openLogFileLocation(file.path);
+      if (destroyed) return;
       showFileNotice(import.meta.env.MODE === "production" ? "已打开日志文件位置" : "已下载日志文件");
     } catch (e) {
-      fileError = e instanceof Error ? e.message : String(e);
+      if (!destroyed) fileError = e instanceof Error ? e.message : String(e);
     } finally {
       openingLogPath = "";
     }
   }
 
   async function refreshLogFiles() {
+    if (destroyed || logFileLoading || clearingFiles) return;
     lockLogFilesBodyHeight();
 
     try {
       logFileLoading = true;
       fileError = "";
       clearFileNotice();
-      logReport = await actionApi.getLogSizeReport();
+      const report = await actionApi.getLogSizeReport();
+      if (!destroyed) logReport = report;
     } catch (e) {
-      fileError = e instanceof Error ? e.message : String(e);
+      if (!destroyed) fileError = e instanceof Error ? e.message : String(e);
     } finally {
       await settleLogFilesBodyHeight();
       logFileLoading = false;
@@ -373,7 +434,7 @@
   }
 
   async function clearLogFiles() {
-    if (clearingFiles) return;
+    if (destroyed || clearingFiles || logFileLoading || openingLogPath) return;
 
     const minimumClearAnimation = delay(180);
     lockLogFilesBodyHeight();
@@ -385,13 +446,15 @@
       const result = await actionApi.clearLogFiles();
       const nextReport = await actionApi.getLogSizeReport();
       await minimumClearAnimation;
+      if (destroyed) return;
       logReport = nextReport;
+      if (detailOpen) closeLogDetail();
       if (clearResultSkippedActiveLog(result.stdout)) {
         showFileNotice("内核运行中，已保留当前日志文件");
       }
     } catch (e) {
       await minimumClearAnimation;
-      fileError = e instanceof Error ? e.message : String(e);
+      if (!destroyed) fileError = e instanceof Error ? e.message : String(e);
     } finally {
       await settleLogFilesBodyHeight();
       clearingFiles = false;
@@ -400,7 +463,7 @@
 
   $effect(() => {
     const level = selectedLevel;
-    void connectLogStream(level);
+    untrack(() => void connectLogStream(level));
 
     return () => {
       disconnectLogStream();
@@ -422,6 +485,9 @@
   });
 
   onDestroy(() => {
+    destroyed = true;
+    clearTimeout(detailRenderTimer);
+    disconnectLogStream();
     terminalClearToken += 1;
     detailToken += 1;
     detailLoadToken += 1;
@@ -459,6 +525,7 @@
             class="inline-flex h-8 w-8 items-center justify-center border border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800 transition-colors rounded-lg"
             onclick={() => {
               paused = !paused;
+              if (paused) discardPendingLogs();
             }}
             title={paused ? "继续" : "暂停"}
             aria-label={paused ? "继续" : "暂停"}
@@ -513,7 +580,7 @@
         </div>
       {/if}
 
-      <div class="h-full overflow-y-auto p-3 custom-scrollbar" bind:this={logsContainer} onscroll={updateStickToTop}>
+      <div class="h-full overflow-y-auto p-3 custom-scrollbar" style="overflow-anchor: none" bind:this={logsContainer} onscroll={updateStickToTop}>
         {#if logRows.length === 0}
           <div class="flex h-full items-center justify-center text-zinc-700" in:fade={{ duration: 160 }}>Waiting for logs...</div>
         {:else if filteredLogRows.length === 0}
@@ -521,7 +588,7 @@
         {:else}
           <div class="space-y-2">
             {#each filteredLogRows as row (row.id)}
-              <div class="border-b border-zinc-900 pb-2 text-zinc-300" animate:flip={{ duration: 120, easing: cubicOut }} in:fade={{ duration: 90 }} out:fade={{ duration: 90 }}>
+              <div class="border-b border-zinc-900 pb-2 text-zinc-300" data-log-id={row.id} animate:flip={{ duration: 120, easing: cubicOut }} in:fade={{ duration: 90 }} out:fade={{ duration: 90 }}>
                 <div class="flex items-center justify-between gap-3">
                   <span class={typeClass(row.type)}>{row.type}</span>
                   <time class="shrink-0 select-none text-zinc-600">[{row.time}]</time>
@@ -559,7 +626,7 @@
             ? 'border-rose-300 bg-rose-100 dark:border-rose-800/70 dark:bg-rose-950/50'
             : ''}"
           onclick={clearLogFiles}
-          disabled={clearingFiles || logReport.totalBytes === 0}
+          disabled={clearingFiles || logFileLoading || !!openingLogPath || logReport.totalBytes === 0}
           title="清理日志"
         >
           <Trash2 size={14} class={clearingFiles ? "opacity-70" : ""} />

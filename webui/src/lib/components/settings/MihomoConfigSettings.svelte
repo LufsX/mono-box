@@ -39,6 +39,7 @@
 
   let pendingAction = $state<PendingAction | null>(null);
   let actionError = $state("");
+  let switchStage = $state<"" | "validating" | "restarting">("");
 
   let updateAllDone = $state(0);
   let updateAllTotal = $state(0);
@@ -166,7 +167,7 @@
   }
 
   async function loadConfigs() {
-    if (loading) return;
+    if (loading || busyKey) return;
     try {
       loading = true;
       clearErrorBanner();
@@ -180,7 +181,7 @@
   }
 
   async function withBusy(key: string, failurePrefix: string, run: () => Promise<void>) {
-    if (busyKey) return;
+    if (busy) return;
     try {
       busyKey = key;
       clearErrorBanner();
@@ -389,39 +390,42 @@
   }
 
   async function confirmSwitch(restart: boolean) {
-    if (!pendingAction || pendingAction.kind !== "switch" || busyKey) return;
+    if (!pendingAction || pendingAction.kind !== "switch" || busy) return;
     const target = pendingAction.config;
+    let selected: MihomoConfigFile | null = null;
     try {
       busyKey = restart ? "switch:restart" : "switch:save";
+      switchStage = "validating";
       actionError = "";
       await yieldBeforeShellCommand();
-      const next = await actionApi.switchMihomoConfigFile(target.name, target.kind);
-
+      selected = await actionApi.switchMihomoConfigFile(target.name, target.kind);
+      // Selection is committed even if the subsequent restart throws.
+      applyConfigPatch(selected);
       if (restart) {
+        switchStage = "restarting";
         await yieldBeforeShellCommand();
         const result = await actionApi.runActionScript("restart");
-        if (result.errno !== 0) {
-          const detail = result.stderr.trim() || result.stdout.trim() || `errno ${result.errno}`;
-          queueAfterModalExit(() => {
-            applyConfigPatch(next);
-            setFailure(`已选择 ${next.name}，但核心重启失败：${detail}`);
-          });
-          actionModalHistory.close();
-          return;
-        }
+        if (result.errno !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `errno ${result.errno}`);
       }
-
+      const next = selected;
       queueAfterModalExit(() => {
-        applyConfigPatch(next);
         setSuccess(restart ? `已应用 ${next.name} 并重启核心` : `已选择 ${next.name}，下次启动时生效`);
       });
       actionModalHistory.close();
     } catch (error) {
-      actionError = getErrorMessage(error);
+      if (selected) {
+        const message = `已选择 ${selected.name}，但核心重启失败：${getErrorMessage(error)}`;
+        queueAfterModalExit(() => setFailure(message));
+        actionModalHistory.close();
+      } else {
+        actionError = getErrorMessage(error);
+      }
     } finally {
+      switchStage = "";
       busyKey = "";
     }
   }
+
 </script>
 
 <svelte:window onkeydown={handleWindowKeydown} />
@@ -545,10 +549,6 @@
               in:fly={{ y: 8, duration: 240, delay: Math.min(index * 28, 140), easing: quintOut }}
               out:fade={{ duration: 100 }}
             >
-              {#if config.active}
-                <span class="absolute inset-y-0 left-0 w-0.5 bg-emerald-500" aria-hidden="true" in:fade={{ duration: 180 }} out:fade={{ duration: 120 }}></span>
-              {/if}
-
               <div class="flex min-h-5 min-w-0 items-center gap-1.5">
                 <p class="min-w-0 flex-1 truncate text-sm font-bold text-slate-900 dark:text-slate-100" title={config.name}>{config.name}</p>
                 {#if config.active}
@@ -566,14 +566,14 @@
                 </span>
               </div>
 
-              <div class="mt-1.5 flex min-h-7 min-w-0 items-center justify-between gap-2 overflow-hidden">
-                <div class="flex min-w-0 flex-1 items-center gap-x-2 overflow-hidden whitespace-nowrap text-[11px] text-slate-500 dark:text-zinc-400">
+              <div class="mt-1 flex min-h-7 min-w-0 items-center gap-2">
+                <div class="flex min-w-0 flex-1 items-center gap-x-1 overflow-hidden whitespace-nowrap text-[11px] text-slate-500 dark:text-zinc-400">
                   <span class="shrink-0 tabular-nums">{formatBytes(config.size)}</span>
                   <span class="shrink-0 text-slate-300 dark:text-zinc-600">·</span>
-                  <span class="shrink-0">{formatUpdatedAt(config.updatedAt)}</span>
+                  <span class="truncate" title={formatUpdatedAt(config.updatedAt)}>{formatUpdatedAt(config.updatedAt)}</span>
                   {#if config.sourceUrl}
                     <span class="shrink-0 text-slate-300 dark:text-zinc-600">·</span>
-                    <span class="inline-flex min-w-0 flex-1 basis-32 items-center gap-1 overflow-hidden" title={config.sourceUrl}>
+                    <span class="inline-flex min-w-0 flex-1 items-center gap-1 overflow-hidden" title={config.sourceUrl}>
                       <Link size={10} class="shrink-0" />
                       <span class="min-w-0 truncate">{config.sourceUrl}</span>
                     </span>
@@ -620,7 +620,7 @@
                         out:fade={{ duration: 110 }}
                       >
                         <Power size={12} />
-                        应用
+                        切换
                       </button>
                     {/if}
                   </div>
@@ -853,14 +853,21 @@
         </div>
         <div class="min-w-0 flex-1">
           <h3 id="mihomo-action-title" class="text-sm font-bold text-slate-900 dark:text-slate-100">
-            {pendingAction.kind === "delete" ? "删除配置" : "应用配置"}
+            {pendingAction.kind === "delete" ? "删除配置" : "切换配置"}
           </h3>
           <p class="mt-1 break-all font-mono text-xs text-slate-500 dark:text-zinc-400">{pendingAction.config.name}</p>
           <p class="mt-3 text-xs leading-relaxed text-slate-600 dark:text-zinc-300">
-            {pendingAction.kind === "delete" ? "配置文件及保存的源链接会一并删除，此操作无法撤销。" : "应用前会先调用 Mihomo 校验配置。可以立即重启核心生效，或仅保存为下次启动配置。"}
+            {pendingAction.kind === "delete" ? "配置文件及保存的源链接会一并删除，此操作无法撤销。" : "切换前会校验配置。立即应用会重启核心，现有连接可能短暂中断；也可仅选择，下次启动时生效。"}
           </p>
         </div>
       </div>
+
+      {#if switchStage}
+        <p class="mx-4 mb-3 flex items-center gap-2 text-xs text-slate-600 dark:text-zinc-400" role="status" in:fade={{ duration: 120 }}>
+          <RefreshCw size={13} class="shrink-0 animate-spin" />
+          {switchStage === "validating" ? "正在校验并选择配置…" : "配置已选择，正在重启核心…"}
+        </p>
+      {/if}
 
       {#if actionError}
         <div transition:slide={{ duration: 150, easing: cubicOut }}>

@@ -234,7 +234,7 @@ export interface ClashApiPort {
   createLogsWebSocket(level: ClashLogLevel | undefined, onMessage: (data: ClashLogEntry) => void, onError?: (error: Event) => void): Promise<WebSocket>;
   setOutbound(selector: string, outbound: string): Promise<void>;
   getProxies(): Promise<ClashProxyMap>;
-  testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[] }): Promise<number>;
+  testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[]; providerName?: string }): Promise<number>;
   getProxyProviders(): Promise<ClashProxyProviderMap>;
   getRuleProviders(): Promise<ClashRuleProviderMap>;
   updateRuleProvider(name: string): Promise<void>;

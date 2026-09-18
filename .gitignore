@@ -34,3 +34,6 @@ vite.config.ts.timestamp-*
 .claude
 AGENTS.md
 CLAUDE.md
+
+# Root dependencies
+/node_modules/

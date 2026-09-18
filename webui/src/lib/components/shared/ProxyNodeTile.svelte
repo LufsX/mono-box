@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { roundedStore } from "$lib/settings";
   import { Check } from "@lucide/svelte";
 
   let {
@@ -9,6 +10,7 @@
     selectable = false,
     testing = false,
     failed = false,
+    testable = true,
     onSelect,
     onTest,
   }: {
@@ -19,6 +21,7 @@
     selectable?: boolean;
     testing?: boolean;
     failed?: boolean;
+    testable?: boolean;
     onSelect?: () => void;
     onTest?: (event: MouseEvent) => void;
   } = $props();
@@ -32,6 +35,8 @@
   }
 
   const style = $derived(failed ? { text: "text-rose-600 dark:text-rose-400", dot: "bg-rose-500" } : latencyStyle(latency));
+  const testTagRadius = $derived($roundedStore ? "rounded" : "rounded-none");
+  const testTitle = $derived(testable ? "点击测速" : "未找到该节点的测速资源");
 </script>
 
 <div
@@ -46,7 +51,7 @@
   }}
   onkeydown={(event) => {
     if (!selectable) return;
-    if (event.key === "Enter" || event.key === " ") {
+    if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
       event.preventDefault();
       onSelect?.();
     }
@@ -62,10 +67,10 @@
   <div class="mt-1.5 flex min-w-0 items-center justify-between gap-1.5 border-t border-dashed border-slate-200 pt-1 dark:border-zinc-700">
     <span class="min-w-0 truncate font-mono text-[10px] uppercase text-slate-400 dark:text-zinc-500">{type}</span>
     <button
-      class={`text-[10px] font-mono font-bold px-1 border border-slate-300 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/80 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors ${style.text} rounded`}
+      class={`text-[10px] font-mono font-bold px-1 border border-slate-300 dark:border-zinc-700 bg-white/70 dark:bg-zinc-900/80 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${style.text} ${testTagRadius}`}
       onclick={onTest}
-      disabled={testing}
-      title="点击测速"
+      disabled={testing || !testable}
+      title={testTitle}
     >
       <span class="inline-block min-w-10 text-center tabular-nums transition-opacity duration-150 {testing ? 'opacity-85' : 'opacity-100'}">
         {#if testing}

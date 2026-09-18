@@ -226,18 +226,21 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
     return result?.proxies || {};
   }
 
-  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[] }): Promise<number> {
+  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[]; providerName?: string }): Promise<number> {
     const config = await getClashConfig();
     const url = options?.url || "http://cp.cloudflare.com/generate_204";
     const requestedTimeout = options?.timeout ?? 5000;
-    const timeout = Number.isFinite(requestedTimeout) ? Math.max(1, Math.trunc(requestedTimeout)) : 5000;
+    const timeout = Number.isFinite(requestedTimeout) ? Math.min(32767, Math.max(1, Math.trunc(requestedTimeout))) : 5000;
     const commandTimeout = Math.ceil(timeout / 1000) + 2;
     const encodedTestUrl = encodeURIComponent(url).replace(/%3A/gi, ":");
-    const candidates = [...new Set([name, ...(options?.aliases || [])].filter((candidate) => candidate.trim().length > 0))];
+    const candidates = [...new Set([name, ...(options?.aliases || [])].filter((candidate) => candidate))];
     let lastResourceError = "";
 
     for (const candidate of candidates) {
-      const endpoint = `http://127.0.0.1:${config.port}/proxies/${encodeURIComponent(candidate)}/delay?url=${encodedTestUrl}&timeout=${timeout}`;
+      const path = options?.providerName
+        ? `/providers/proxies/${encodeURIComponent(options.providerName)}/${encodeURIComponent(candidate)}/healthcheck`
+        : `/proxies/${encodeURIComponent(candidate)}/delay`;
+      const endpoint = `http://127.0.0.1:${config.port}${path}?url=${encodedTestUrl}&timeout=${timeout}`;
       const authOption = config.secret.trim() ? ` -H ${quoteShellArgument(`Authorization: Bearer ${config.secret.trim()}`)}` : "";
       const response = await exec(`curl -sS --max-time ${commandTimeout}${authOption} ${quoteShellArgument(endpoint)}`);
 
@@ -251,11 +254,14 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
       } catch {
         throw new Error("Clash API 返回格式异常");
       }
-      if (result.message?.toLowerCase().includes("resource not found")) {
-        lastResourceError = result.message;
+      const responseMessage = result.message || "";
+      if (/\b(?:resource|proxy)\b.*\bnot found\b|\bnot found\b.*\b(?:resource|proxy)\b/i.test(responseMessage)) {
+        lastResourceError = responseMessage;
         continue;
       }
-      if (result.message?.toLowerCase().includes("error occurred in the delay test")) return 0;
+      // Mihomo getProxyDelay reports probe failure (503) or probe timeout (504).
+      // Transport/auth/resource errors must remain errors, not node failures.
+      if (responseMessage.toLowerCase().includes("error occurred in the delay test") || responseMessage === "Timeout") return 0;
       if (result.message) throw new Error(result.message);
       if (typeof result.delay !== "number" || !Number.isFinite(result.delay) || result.delay <= 0) {
         throw new Error("Clash API 未返回有效延迟");

@@ -38,7 +38,7 @@ export function latencyBarClass(ms: number): string {
 }
 
 function compactProxyName(name: string): string {
-  return name.replace(/\s+/g, "");
+  return name.normalize("NFC").replace(/\s+/g, "");
 }
 
 export function readNodeLatency(latencies: Record<string, number>, name: string): number {
@@ -58,12 +58,7 @@ export function buildProxyDetailMap(proxies: ClashProxyMap, providers: ClashProx
   }
 
   for (const [name, proxy] of Object.entries(proxies)) {
-    details[name] = { ...details[name], ...proxy };
-  }
-
-  for (const proxy of Object.values(details)) {
-    const alias = compactProxyName(proxy.name);
-    if (alias && !details[alias]) details[alias] = proxy;
+    details[name] = { ...proxy };
   }
 
   return details;
@@ -75,7 +70,7 @@ export function groupNodes(proxies: ClashProxyMap | null, details: ClashProxyMap
 
   return group.all
     .map((name, index) => {
-      const detail = details[name] || details[compactProxyName(name)];
+      const detail = details[name];
       return {
         key: `${groupName}:${index}:${name}`,
         name,
@@ -130,20 +125,33 @@ export function providerNames(providers: ClashProxyProviderMap | null): string[]
   return Object.keys(providers || {}).filter((name) => providers?.[name]?.vehicleType.toLowerCase() !== "compatible");
 }
 
-export function resolveProxyApiName(providers: ClashProxyProviderMap | null, name: string): string {
-  const allProviders = Object.values(providers || {});
-  const realProviders = allProviders.filter((provider) => provider.vehicleType.toLowerCase() !== "compatible");
+/**
+ * Resolves a delay-test resource from the exact keys exposed by `GET /proxies`.
+ *
+ * Provider entries can be referenced by a selector without being registered as a
+ * standalone `/proxies/:name` resource. Returning a provider name for those
+ * entries makes every direct delay request fail with `Resource not found`.
+ */
+export function resolveProxyApiName(proxies: ClashProxyMap | null, name: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(proxies || {}, name) ? name : undefined;
+}
 
-  function findName(candidates: ClashProxyProvider[], compact: boolean): string | undefined {
-    const expected = compact ? compactProxyName(name) : name;
-    for (const provider of candidates) {
-      const match = (provider.proxies || []).find((proxy) => (compact ? compactProxyName(proxy.name) : proxy.name) === expected);
-      if (match) return match.name;
-    }
-    return undefined;
+export function resolveProxyTestTarget(proxies: ClashProxyMap | null, providers: ClashProxyProviderMap | null, name: string, contextName?: string, providerName?: string) {
+  const declaredProvider = providerName ?? proxies?.[name]?.["provider-name"];
+  if (declaredProvider) {
+    const exists = providers?.[declaredProvider]?.proxies?.some((node) => node.name === name);
+    return exists
+      ? { name, apiName: name, providerName: declaredProvider, contextName }
+      : { name, providerName: declaredProvider, contextName };
   }
-
-  return findName(realProviders, false) || findName(realProviders, true) || findName(allProviders, false) || findName(allProviders, true) || name;
+  const apiName = resolveProxyApiName(proxies, name);
+  if (apiName) return { name, apiName, contextName };
+  const matches = Object.entries(providers || {}).filter(([, provider]) =>
+    provider.vehicleType.toLowerCase() !== "compatible" && provider.proxies?.some((node) => node.name === name),
+  );
+  return matches.length === 1
+    ? { name, apiName: name, providerName: matches[0][0], contextName }
+    : { name, contextName };
 }
 
 export function resolveProxyProviderName(providers: ClashProxyProviderMap | null, name: string, preferredName?: string): string | undefined {

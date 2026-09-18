@@ -116,7 +116,7 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
       name: "Proxy",
       type: "Selector",
       now: "HK-A",
-      all: ["HK-A", "JP-A", "US-A", "SG-A", "DIRECT", "REJECT"],
+      all: ["HK-A", "JP-A", "US-A", "SG-A", "订阅专线 / HK B", "DIRECT", "REJECT"],
       udp: true,
     },
     Auto: {
@@ -178,6 +178,7 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
         { name: "JP-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
         { name: "US-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
         { name: "SG-A", type: "Shadowsocks", alive: true, history: [], extra: {} },
+        { name: "订阅专线 / HK B", type: "VLESS", alive: true, history: [], extra: {} },
       ],
       subscriptionInfo: {
         Download: 32 * 1024 * 1024 * 1024,
@@ -403,18 +404,19 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
     return mockProxies;
   }
 
-  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[] }): Promise<number> {
+  async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[]; providerName?: string }): Promise<number> {
     const candidates = [...new Set([name, ...(options?.aliases || [])])];
-    const resolvedName =
-      candidates.find((candidate) => Boolean(mockProxies[candidate])) ||
-      candidates.find((candidate) => Object.values(mockProviders).some((provider) => (provider.proxies || []).some((proxy) => proxy.name === candidate)));
+    const resolvedName = options?.providerName
+      ? candidates.find((candidate) => mockProviders[options.providerName!]?.proxies?.some((proxy) => proxy.name === candidate))
+      : candidates.find((candidate) => Boolean(mockProxies[candidate]));
     if (!resolvedName) throw new Error("Resource not found");
 
+    await new Promise((resolve) => setTimeout(resolve, 350));
     const delay = randomInRange(32, 880);
     const entry = { time: new Date().toISOString(), delay };
     const appendHistory = (history: ClashProxyHistory[] | undefined) => [...(history || []), entry].slice(-12);
 
-    if (mockProxies[resolvedName]) {
+    if (!options?.providerName && mockProxies[resolvedName]) {
       mockProxies = {
         ...mockProxies,
         [resolvedName]: {
@@ -430,7 +432,7 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
         {
           ...provider,
           proxies: (provider.proxies || []).map((proxy) =>
-            proxy.name === resolvedName ? { ...proxy, history: appendHistory(proxy.history) } : proxy,
+            proxy.name === resolvedName && (!options?.providerName || providerName === options.providerName) ? { ...proxy, history: appendHistory(proxy.history) } : proxy,
           ),
         },
       ]),
@@ -483,7 +485,7 @@ export function createMockClashApi(configPort: ConfigPort): ClashApiPort {
     }
 
     for (const node of provider.proxies || []) {
-      await testProxyDelay(node.name);
+      await testProxyDelay(node.name, { providerName: name });
     }
 
     const updatedProvider = mockProviders[name];

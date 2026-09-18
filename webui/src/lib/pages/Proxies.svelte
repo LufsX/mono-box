@@ -16,18 +16,13 @@
   import { formatBytes } from "$lib/utils";
   import {
     buildProxyDetailMap,
-    deriveLatencyMap,
-    deriveProviderLatencyMap,
     formatProviderExpireDate as formatDate,
     getLatencyStyle,
     groupNames as resolveGroupNames,
     groupNodes as resolveGroupNodes,
     latencyBarClass,
     providerNames as resolveProviderNames,
-    resolveProxyApiName,
-    resolveProxyProviderName,
-    providerUsableNodes as resolveProviderUsableNodes,
-    readNodeLatency as resolveNodeLatency,
+    resolveProxyTestTarget,
     resolveProxyTestUrl,
     resolveTestUrl,
     sortedGroupNodes as resolveSortedGroupNodes,
@@ -37,6 +32,17 @@
     type ProxyNode,
     type ViewType,
   } from "$lib/page-state/proxies";
+  import {
+    commitProxyTestResult,
+    emptyProxyTestState,
+    isNodeTestFailed,
+    readNodeTestResult,
+    readNodeTestLatency,
+    seedProxyTestState,
+    testTargetNames,
+    type ProxyTestState,
+    type ProxyTestTarget,
+  } from "$lib/page-state/proxy-testing";
 
   let proxies = $state<ClashProxyMap | null>(null);
   let proxyDetails = $state<ClashProxyMap>({});
@@ -47,33 +53,27 @@
   let proxyTestUrl = $state(loadHomeLayoutSettings().proxyTestUrl);
 
   let loading = $state(true);
+  let switchingMode = $state(false);
+  let selectingGroup = $state<string | null>(null);
   let error = $state("");
   let errorReason = $state<"unauthorized" | "unreachable" | "">("");
 
   let groupSorts = $state<Record<string, NodeSortType>>({});
-  let latencies = $state<Record<string, number>>({});
+  let testState = $state<ProxyTestState>(emptyProxyTestState());
   let testingOwners = $state<Record<string, number>>({});
   let testingNodes = $state<Record<string, number>>({});
-  let failedNodes = $state<Record<string, boolean>>({});
   let testingProgress = $state<Record<string, { done: number; total: number }>>({});
   let updatingProvider = $state<string | null>(null);
 
   let activeGroup = $state<string | null>(null);
   let activeProvider = $state<string | null>(null);
 
-  type TestTarget = {
-    name: string;
-    apiName: string;
-    contextName?: string;
-    providerName?: string;
-  };
-
   type NodeTestResult = {
     name: string;
-    status: "success" | "failed" | "error" | "fallback";
+    status: "success" | "failed" | "error";
     delay: number;
     message?: string;
-    target: TestTarget;
+    target: ProxyTestTarget;
   };
 
   const modalHistory = useModalHistory("proxies", () => {
@@ -87,31 +87,38 @@
     { value: "direct", label: "直连" },
   ];
 
-  function readNodeLatency(name: string): number {
-    return resolveNodeLatency(latencies, name);
+  function readNodeLatency(name: string, providerName?: string): number {
+    const target = resolveProxyTestTarget(proxies, providers, name, undefined, providerName);
+    return readNodeTestLatency(testState, name, target.providerName);
   }
 
-  function commitNodeResult(target: TestTarget, delay: number) {
-    const names = [...new Set([target.name, target.apiName].filter(Boolean))];
-    const nextLatencies = { ...latencies };
-    const nextFailed = { ...failedNodes };
+  function nodeLatencyMap(): Record<string, number> {
+    const values: Record<string, number> = {};
+    for (const name of Object.keys(proxyDetails)) values[name] = readNodeLatency(name);
+    return values;
+  }
 
-    for (const name of names) {
-      nextLatencies[name] = delay;
-      if (delay > 0) delete nextFailed[name];
-      else nextFailed[name] = true;
-    }
+  function nodeFailed(name: string, providerName?: string): boolean {
+    const target = resolveProxyTestTarget(proxies, providers, name, undefined, providerName);
+    return isNodeTestFailed(testState, name, target.providerName);
+  }
 
-    latencies = nextLatencies;
-    failedNodes = nextFailed;
+  function groupResult(groupName: string) {
+    const name = proxies?.[groupName]?.now;
+    const target = name ? resolveProxyTestTarget(proxies, providers, name) : undefined;
+    return target ? readNodeTestResult(testState, target.name, target.providerName) : undefined;
+  }
+
+  function commitNodeResult(target: ProxyTestTarget, delay: number) {
+    if (!disposed) testState = commitProxyTestResult(testState, target, delay);
   }
 
   function groupNodes(groupName: string): ProxyNode[] {
-    return resolveGroupNodes(proxies, proxyDetails, latencies, groupName);
+    return resolveGroupNodes(proxies, proxyDetails, nodeLatencyMap(), groupName);
   }
 
   function sortedGroupNodes(groupName: string): ProxyNode[] {
-    return resolveSortedGroupNodes(proxies, proxyDetails, latencies, groupSorts, groupName);
+    return resolveSortedGroupNodes(proxies, proxyDetails, nodeLatencyMap(), groupSorts, groupName);
   }
 
   function groupNames(): string[] {
@@ -123,7 +130,7 @@
   }
 
   function providerUsableNodes(name: string): number {
-    return resolveProviderUsableNodes(providers, latencies, name);
+    return (providers?.[name]?.proxies || []).filter((node) => readNodeLatency(node.name, name) > 0).length;
   }
 
   function getTestUrl(groupName?: string): string {
@@ -152,27 +159,34 @@
     groupSorts[groupName] = orders[(orders.indexOf(current) + 1) % orders.length];
   }
 
-  function testStart(owner: string, nodes: string[]) {
-    testingOwners = { ...testingOwners, [owner]: 1 };
-    testingProgress = { ...testingProgress, [owner]: { done: 0, total: Math.max(1, nodes.length) } };
-    const nextNodes = { ...testingNodes };
-    for (const node of nodes) {
-      if (!node) continue;
-      nextNodes[node] = (nextNodes[node] || 0) + 1;
-    }
-    testingNodes = nextNodes;
+  function isNodeTesting(name: string, providerName?: string): boolean {
+    return testTargetNames(resolveProxyTestTarget(proxies, providers, name, undefined, providerName)).some((key) => Boolean(testingNodes[key]));
   }
 
-  function testEnd(owner: string, nodes: string[]) {
+  function testStart(owner: string, targets: ProxyTestTarget[]): boolean {
+    const nodeKeys = [...new Set(targets.flatMap(testTargetNames))];
+    if (testingOwners[owner] || nodeKeys.some((key) => testingNodes[key])) return false;
+
+    testingOwners = { ...testingOwners, [owner]: 1 };
+    testingProgress = { ...testingProgress, [owner]: { done: 0, total: Math.max(1, targets.length) } };
+    const nextNodes = { ...testingNodes };
+    for (const key of nodeKeys) {
+      nextNodes[key] = (nextNodes[key] || 0) + 1;
+    }
+    testingNodes = nextNodes;
+    return true;
+  }
+
+  function testEnd(owner: string, targets: ProxyTestTarget[]) {
     const nextOwners = { ...testingOwners };
     const nextProgress = { ...testingProgress };
     const nextNodes = { ...testingNodes };
     delete nextOwners[owner];
     delete nextProgress[owner];
-    for (const node of nodes) {
-      const count = nextNodes[node] || 0;
-      if (count <= 1) delete nextNodes[node];
-      else nextNodes[node] = count - 1;
+    for (const key of [...new Set(targets.flatMap(testTargetNames))]) {
+      const count = nextNodes[key] || 0;
+      if (count <= 1) delete nextNodes[key];
+      else nextNodes[key] = count - 1;
     }
     testingOwners = nextOwners;
     testingProgress = nextProgress;
@@ -188,37 +202,39 @@
     };
   }
 
-  async function loadData() {
+  let loadSequence = 0;
+  let disposed = false;
+
+  async function loadData(background = false) {
+    const sequence = ++loadSequence;
+    const revision = testState.revision;
     try {
-      error = "";
-      errorReason = "";
+      if (!background) { error = ""; errorReason = ""; }
       const [proxyData, providerData, configData] = await Promise.all([clashApi.getProxies(), clashApi.getProxyProviders(), clashApi.getConfigs()]);
-      const nextProxyDetails = buildProxyDetailMap(proxyData, providerData);
-
+      if (disposed || sequence !== loadSequence) return;
       proxies = syncRecord(proxies, proxyData);
-      proxyDetails = syncRecord(proxyDetails, nextProxyDetails);
+      proxyDetails = syncRecord(proxyDetails, buildProxyDetailMap(proxyData, providerData));
       providers = syncRecord(providers, providerData);
-      if (configData?.mode) {
-        modeSelectValue = configData.mode as ClashMode;
-      }
-
-      const nextLatency = { ...deriveLatencyMap(proxyData), ...deriveProviderLatencyMap(providerData) };
-      latencies = nextLatency;
-      failedNodes = {};
-      const savedTestUrl = loadHomeLayoutSettings().proxyTestUrl.trim();
-      proxyTestUrl = resolveProxyTestUrl(savedTestUrl, configData);
+      if (configData?.mode && !switchingMode) modeSelectValue = configData.mode as ClashMode;
+      testState = seedProxyTestState(testState, proxyData, providerData, revision);
+      proxyTestUrl = resolveProxyTestUrl(loadHomeLayoutSettings().proxyTestUrl.trim(), configData);
     } catch (e) {
+      if (disposed || sequence !== loadSequence) return;
       const classified = classifyConnectionError(e);
-      errorReason = classified.reason;
-      error = classified.message;
-      proxies = null;
-      proxyDetails = {};
-      providers = null;
+      if (background) {
+        // A refresh failure must not replace a test outcome or discard existing data.
+        const message = `刷新代理信息失败: ${classified.message}`;
+        if (!error.includes(message)) error = error ? `${error}\n${message}` : message;
+      } else {
+        errorReason = proxies ? "" : classified.reason;
+        error = classified.message;
+      }
     }
   }
 
   async function switchMode(mode: ClashMode) {
-    if (mode === $currentMode) return;
+    if (mode === $currentMode || switchingMode) return;
+    switchingMode = true;
     try {
       error = "";
       errorReason = "";
@@ -229,145 +245,67 @@
       errorReason = "";
       error = `切换模式失败: ${message}`;
       modeSelectValue = $currentMode;
+    } finally {
+      switchingMode = false;
     }
   }
 
   async function selectNode(groupName: string, nodeName: string) {
     const group = proxies?.[groupName];
-    if (!group || group.type !== "Selector" || group.now === nodeName) return;
+    if (!group || group.type !== "Selector" || group.now === nodeName || selectingGroup) return;
+    selectingGroup = groupName;
     try {
       error = "";
       errorReason = "";
       await clashApi.setOutbound(groupName, nodeName);
-      if (proxies?.[groupName]) {
-        proxies[groupName].now = nodeName;
-      }
+      proxies = proxies ? { ...proxies, [groupName]: { ...group, now: nodeName } } : proxies;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       errorReason = "";
       error = `切换策略失败: ${message}`;
+    } finally {
+      selectingGroup = null;
     }
   }
 
-  async function runNodeTest(target: TestTarget): Promise<NodeTestResult> {
+  async function runNodeTest(target: ProxyTestTarget): Promise<NodeTestResult> {
+    if (!target.apiName) {
+      return {
+        name: target.name,
+        status: "error",
+        delay: 0,
+        message: "无法确定节点的测速资源，请刷新代理信息后重试",
+        target,
+      };
+    }
+
     try {
-      const delay = await clashApi.testProxyDelay(target.name, {
+      const delay = await clashApi.testProxyDelay(target.apiName, {
         url: getTestUrl(target.contextName),
-        aliases: target.apiName === target.name ? [] : [target.apiName],
+        providerName: target.providerName,
       });
       commitNodeResult(target, delay);
       return { name: target.name, status: delay > 0 ? "success" : "failed", delay, message: delay > 0 ? undefined : "测速失败", target };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      if (message.toLowerCase().includes("resource not found")) {
-        return { name: target.name, status: "fallback", delay: 0, message, target };
-      }
-      commitNodeResult(target, 0);
       return { name: target.name, status: "error", delay: 0, message, target };
     }
   }
 
-  async function refreshTestSnapshots(): Promise<{ proxy: Record<string, number>; provider: Record<string, number> }> {
-    const [proxyData, providerData] = await Promise.all([clashApi.getProxies(), clashApi.getProxyProviders()]);
-    const nextProxyDetails = buildProxyDetailMap(proxyData, providerData);
-    proxies = syncRecord(proxies, proxyData);
-    proxyDetails = syncRecord(proxyDetails, nextProxyDetails);
-    providers = syncRecord(providers, providerData);
-    return {
-      proxy: deriveLatencyMap(proxyData),
-      provider: deriveProviderLatencyMap(providerData),
-    };
-  }
-
-  function readNodeLatencyFromSnapshots(snapshots: { proxy: Record<string, number>; provider: Record<string, number> } | null, name: string): number {
-    if (!snapshots) return 0;
-    return resolveNodeLatency(snapshots.provider, name) || resolveNodeLatency(snapshots.proxy, name);
-  }
-
-  async function resolveFallbackTests(items: NodeTestResult[]): Promise<NodeTestResult[]> {
-    if (!items.length) return [];
-
-    const providersByName = new Map<string, TestTarget[]>();
+  async function runTestBatch(owner: string, targets: ProxyTestTarget[]): Promise<NodeTestResult[]> {
     const results: NodeTestResult[] = [];
-    for (const item of items) {
-      const target = item.target;
-      const providerName = target.providerName || resolveProxyProviderName(providers, target.apiName, target.contextName);
-      if (!providerName) {
-        commitNodeResult(target, 0);
-        results.push({ ...item, status: "error", message: item.message || "Resource not found" });
-        continue;
-      }
-      const targets = providersByName.get(providerName) || [];
-      targets.push({ ...target, providerName });
-      providersByName.set(providerName, targets);
-    }
-
-    const healthErrors = new Map<string, string>();
-    await Promise.all(
-      [...providersByName.keys()].map(async (providerName) => {
-        try {
-          await clashApi.healthCheckProxyProvider(providerName);
-        } catch (e) {
-          healthErrors.set(providerName, e instanceof Error ? e.message : String(e));
-        }
-      }),
-    );
-
-    let snapshots: { proxy: Record<string, number>; provider: Record<string, number> } | null = null;
-    if ([...providersByName.keys()].some((name) => !healthErrors.has(name))) {
-      try {
-        snapshots = await refreshTestSnapshots();
-      } catch (e) {
-        const message = e instanceof Error ? e.message : String(e);
-        for (const providerName of providersByName.keys()) {
-          if (!healthErrors.has(providerName)) healthErrors.set(providerName, message);
-        }
-      }
-    }
-
-    for (const [providerName, targets] of providersByName) {
-      const healthError = healthErrors.get(providerName);
-      for (const target of targets) {
-        const delay = healthError
-          ? 0
-          : readNodeLatencyFromSnapshots(snapshots, target.name) || readNodeLatencyFromSnapshots(snapshots, target.apiName);
-        commitNodeResult(target, delay);
-        results.push({
-          name: target.name,
-          status: healthError ? "error" : delay > 0 ? "success" : "failed",
-          delay,
-          message: healthError || (delay > 0 ? undefined : "测速失败"),
-          target,
-        });
-      }
-    }
-
-    return results;
-  }
-
-  async function runTestBatch(owner: string, targets: TestTarget[]): Promise<NodeTestResult[]> {
-    const results: NodeTestResult[] = [];
-    const fallbacks: NodeTestResult[] = [];
     let nextIndex = 0;
 
     async function worker() {
       while (nextIndex < targets.length) {
         const target = targets[nextIndex++];
         const result = await runNodeTest(target);
-        if (result.status === "fallback") fallbacks.push(result);
-        else {
-          results.push(result);
-          stepProgress(owner);
-        }
+        results.push(result);
+        stepProgress(owner);
       }
     }
 
     await Promise.all(Array.from({ length: Math.min(5, targets.length) }, () => worker()));
-    const fallbackResults = await resolveFallbackTests(fallbacks);
-    for (const result of fallbackResults) {
-      results.push(result);
-      stepProgress(owner);
-    }
     return results;
   }
 
@@ -378,44 +316,81 @@
     error = `${label} ${failed.length}/${results.length}: ${failed[0].message || "测速失败"}`;
   }
 
-  async function testSingleNode(event: MouseEvent, owner: string, nodeName: string, groupName?: string, apiName = nodeName) {
+  function groupTargets(groupName: string): ProxyTestTarget[] {
+    return groupNodes(groupName).map((node) => resolveProxyTestTarget(proxies, providers, node.name, groupName));
+  }
+
+  function providerTargets(providerName: string): ProxyTestTarget[] {
+    return (providers?.[providerName]?.proxies || []).map((node) => resolveProxyTestTarget(proxies, providers, node.name, providerName, providerName));
+  }
+
+  function targetsAreTesting(targets: ProxyTestTarget[]): boolean {
+    return targets.some((target) => testTargetNames(target).some((name) => Boolean(testingNodes[name])));
+  }
+
+  function uniqueTargets(targets: ProxyTestTarget[]): ProxyTestTarget[] {
+    return [...new Map(targets.map((target) => [testTargetNames(target)[0], target])).values()];
+  }
+
+  function directTestTargets(targets: ProxyTestTarget[]): ProxyTestTarget[] {
+    return targets.filter((target): target is ProxyTestTarget & { apiName: string } => Boolean(target.apiName));
+  }
+
+  function groupCanTest(groupName: string): boolean {
+    return directTestTargets(groupTargets(groupName)).length > 0;
+  }
+
+  function providerCanTest(providerName: string): boolean {
+    return directTestTargets(providerTargets(providerName)).length > 0;
+  }
+
+  function providerIsBusy(providerName: string): boolean {
+    return updatingProvider === providerName || targetsAreTesting(providerTargets(providerName));
+  }
+
+  function groupIsBusy(groupName: string): boolean {
+    return Boolean(testingOwners[`group:${groupName}`]) || targetsAreTesting(groupTargets(groupName));
+  }
+
+  async function testSingleNode(event: MouseEvent, owner: string, target: ProxyTestTarget) {
     event.stopPropagation();
-    if (testingOwners[owner] || testingNodes[nodeName]) return;
+    if (!target.apiName) {
+      errorReason = "";
+      error = "无法确定节点的测速资源，请刷新代理信息后重试";
+      return;
+    }
+    if (!testStart(owner, [target])) return;
     error = "";
     errorReason = "";
-    const target: TestTarget = { name: nodeName, apiName, contextName: groupName };
-    testStart(owner, [nodeName]);
     try {
       showTestSummary("节点测速失败", await runTestBatch(owner, [target]));
     } finally {
-      testEnd(owner, [nodeName]);
+      await loadData(true);
+      testEnd(owner, [target]);
     }
   }
 
   async function testGroup(event: MouseEvent, groupName: string) {
     event.stopPropagation();
     const owner = `group:${groupName}`;
-    if (testingOwners[owner]) return;
-    const targets = groupNodes(groupName).map((node) => ({
-      name: node.name,
-      apiName: resolveProxyApiName(providers, node.name),
-      contextName: groupName,
-    }));
+    const targets = uniqueTargets(groupTargets(groupName));
     if (!targets.length) return;
+    if (!testStart(owner, targets)) return;
 
     error = "";
     errorReason = "";
-    testStart(owner, targets.map((target) => target.name));
     try {
-      showTestSummary("策略组测速失败", await runTestBatch(owner, targets));
+      const results = await runTestBatch(owner, targets);
+      showTestSummary("策略组测速失败", results);
     } finally {
-      testEnd(owner, targets.map((target) => target.name));
+      await loadData(true);
+      testEnd(owner, targets);
     }
   }
 
   async function updateProvider(event: MouseEvent, name: string) {
     event.stopPropagation();
-    if (updatingProvider) return;
+    if (updatingProvider || targetsAreTesting(providerTargets(name))) return;
     updatingProvider = name;
     try {
       error = "";
@@ -434,25 +409,26 @@
   async function testProvider(event: MouseEvent, name: string) {
     event.stopPropagation();
     const owner = `provider:${name}`;
-    if (testingOwners[owner]) return;
-    const targets = (providers?.[name]?.proxies || []).map((node) => ({ name: node.name, apiName: node.name, contextName: name, providerName: name }));
+    const targets = uniqueTargets(providerTargets(name));
     if (!targets.length) return;
+    if (!testStart(owner, targets)) return;
     error = "";
     errorReason = "";
-    testStart(owner, targets.map((target) => target.name));
     try {
       showTestSummary("Provider 测速失败", await runTestBatch(owner, targets));
     } finally {
-      testEnd(owner, targets.map((target) => target.name));
+      await loadData(true);
+      testEnd(owner, targets);
     }
   }
 
   async function testProviderNode(event: MouseEvent, providerName: string, nodeName: string) {
     const owner = `provider-node:${providerName}:${nodeName}`;
-    await testSingleNode(event, owner, nodeName, providerName, nodeName);
+    await testSingleNode(event, owner, resolveProxyTestTarget(proxies, providers, nodeName, providerName, providerName));
   }
 
   onMount(() => {
+    disposed = false;
     (async () => {
       loading = true;
       try {
@@ -461,13 +437,15 @@
         loading = false;
       }
     })();
+    let polling = false;
+    const timer = setInterval(async () => {
+      if (polling || loading || document.hidden || Object.keys(testingOwners).length || updatingProvider || selectingGroup || switchingMode) return;
+      polling = true;
+      try { await loadData(true); } finally { polling = false; }
+    }, 30000);
+    return () => { disposed = true; loadSequence++; clearInterval(timer); };
   });
 
-  $effect(() => {
-    if (modeSelectValue !== $currentMode) {
-      void switchMode(modeSelectValue);
-    }
-  });
 </script>
 
 <main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-4">
@@ -479,7 +457,7 @@
     <section in:fly={{ y: 10, duration: 220, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 p-3 transition-colors rounded-xl">
       <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
         <div class="max-w-40">
-          <Select id="proxy-mode" options={modeOptions} bind:value={modeSelectValue} />
+          <Select id="proxy-mode" options={modeOptions} bind:value={modeSelectValue} disabled={loading || switchingMode} onchange={(value) => switchMode(value as ClashMode)} />
         </div>
         <div class="flex font-bold text-sm">
           <button
@@ -488,7 +466,7 @@
               : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
             onclick={() => {
               currentView = "proxies";
-            }}>策略组</button
+            }} aria-pressed={currentView === "proxies"}>策略组</button
           >
           <button
             class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px rounded-r-lg {currentView === 'providers'
@@ -496,7 +474,7 @@
               : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
             onclick={() => {
               currentView = "providers";
-            }}>代理提供商</button
+            }} aria-pressed={currentView === "providers"}>代理提供商</button
           >
         </div>
       </div>
@@ -527,11 +505,13 @@
                 <div class="space-y-3 overflow-visible">
                   {#each groupNames() as groupName (groupName)}
                     {@const group = proxies?.[groupName]}
-                    {@const nowDelay = readNodeLatency(group?.now || "") || readNodeLatency(groupName)}
-                    {@const nowFailed = !!group?.now && !!failedNodes[group.now]}
+                    {@const currentResult = groupResult(groupName)}
+                    {@const nowDelay = currentResult ? currentResult.delay : readNodeLatency(groupName)}
+                    {@const nowFailed = Boolean(currentResult?.failed)}
                     {@const nowStyle = nowFailed ? { text: "text-rose-600 dark:text-rose-400" } : getLatencyStyle(nowDelay)}
                     {@const ownerKey = `group:${groupName}`}
-                    {@const isTestingGroup = !!testingOwners[ownerKey]}
+                    {@const isTestingGroup = groupIsBusy(groupName)}
+                    {@const canTestGroup = groupCanTest(groupName)}
                     {@const progress = testingProgress[ownerKey]}
 
                     <article
@@ -544,7 +524,7 @@
                         tabindex="0"
                         onclick={() => openGroup(groupName)}
                         onkeydown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
                             event.preventDefault();
                             openGroup(groupName);
                           }
@@ -565,8 +545,8 @@
                             class="inline-flex items-center justify-center px-1.5 py-0.5 min-w-14 border border-slate-300 dark:border-zinc-700 font-mono text-[10px] tabular-nums {nowStyle.text} hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
                           rounded-lg"
                             onclick={(event) => testGroup(event, groupName)}
-                            disabled={isTestingGroup}
-                            title="点击重新测速"
+                            disabled={isTestingGroup || !canTestGroup}
+                            title={canTestGroup ? "点击重新测速" : "未找到可测速的节点资源"}
                           >
                             {#if isTestingGroup}
                               {progress ? `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%` : "测试中"}
@@ -586,6 +566,7 @@
                   {#each providerNames() as name (name)}
                     {@const provider = providers?.[name]}
                     {@const isTesting = !!testingOwners[`provider:${name}`]}
+                    {@const canTestProvider = providerCanTest(name)}
                     {@const progress = testingProgress[`provider:${name}`]}
 
                     <article
@@ -598,7 +579,7 @@
                         tabindex="0"
                         onclick={() => openProvider(name)}
                         onkeydown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
+                          if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) {
                             event.preventDefault();
                             openProvider(name);
                           }
@@ -618,8 +599,8 @@
                               class="inline-flex items-center justify-center w-7 h-7 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
                             rounded-lg"
                               onclick={(event) => testProvider(event, name)}
-                              disabled={isTesting}
-                              title="测速 Provider"
+                              disabled={providerIsBusy(name) || !canTestProvider}
+                              title={canTestProvider ? "测速 Provider" : "未找到可测速的节点资源"}
                             >
                               {#if isTesting}
                                 <span class="font-mono text-[11px]">{progress ? `${Math.round((progress.done / Math.max(progress.total, 1)) * 100)}%` : "..."}</span>
@@ -631,7 +612,7 @@
                               class="inline-flex items-center justify-center w-7 h-7 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
                             rounded-lg"
                               onclick={(event) => updateProvider(event, name)}
-                              disabled={updatingProvider === name}
+                              disabled={providerIsBusy(name)}
                               title="更新 Provider"
                             >
                               <RefreshCw size={14} class={updatingProvider === name ? "animate-spin" : ""} />
@@ -658,7 +639,7 @@
                         <div class="mt-2 h-2 w-full border border-slate-300 dark:border-zinc-700 overflow-hidden rounded-lg">
                           <div class="h-full w-full flex">
                             {#each provider?.proxies || [] as node, idx (`provider-bar:${name}:${node.name}:${idx}`)}
-                              {@const delay = readNodeLatency(node.name)}
+                                {@const delay = readNodeLatency(node.name, name)}
                               <div class={`h-full ${latencyBarClass(delay)}`} style={`width:${100 / Math.max((provider?.proxies || []).length, 1)}%`}></div>
                             {/each}
                           </div>
@@ -678,7 +659,8 @@
   {#if activeGroup}
     {@const openedGroup = activeGroup}
     {@const ownerKey = `group:${openedGroup}`}
-    {@const isTestingGroup = !!testingOwners[ownerKey]}
+    {@const isTestingGroup = groupIsBusy(openedGroup)}
+    {@const canTestGroup = groupCanTest(openedGroup)}
     <div
       class="fixed inset-0 z-50 bg-slate-950/55 p-3 md:p-6 flex items-center justify-center"
       role="button"
@@ -689,7 +671,7 @@
         if (event.target === event.currentTarget) closeDetail();
       }}
       onkeydown={(event) => {
-        if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+        if (event.key === "Escape") {
           event.preventDefault();
           closeDetail();
         }
@@ -724,8 +706,8 @@
               class="inline-flex items-center justify-center px-2 py-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
               rounded-lg"
               onclick={(event) => testGroup(event, openedGroup)}
-              disabled={isTestingGroup}
-              title="测速当前策略组"
+              disabled={isTestingGroup || !canTestGroup}
+              title={canTestGroup ? "测速当前策略组" : "未找到可测速的节点资源"}
             >
               <Timer size={14} class={isTestingGroup ? "animate-pulse" : ""} />
             </button>
@@ -745,7 +727,8 @@
             {@const group = proxies?.[openedGroup]}
             {@const selected = group?.now === node.name}
             {@const nodeOwner = `node:${openedGroup}:${node.name}`}
-            {@const nodeTesting = !!testingNodes[node.name]}
+            {@const nodeTesting = isNodeTesting(node.name)}
+            {@const target = resolveProxyTestTarget(proxies, providers, node.name, openedGroup)}
 
             <div class="min-w-0" animate:flip={{ duration: 280, easing: quintOut }}>
               <ProxyNodeTile
@@ -753,11 +736,13 @@
                 type={node.type}
                 latency={readNodeLatency(node.name)}
                 selected={!!selected}
-                selectable={group?.type === "Selector"}
+                selectable={group?.type === "Selector" && !selectingGroup}
                 testing={nodeTesting}
-                failed={!!failedNodes[node.name]}
+                failed={nodeFailed(node.name)}
+                testable={Boolean(target.apiName)}
                 onSelect={() => selectNode(openedGroup, node.name)}
-                onTest={(event) => testSingleNode(event, nodeOwner, node.name, openedGroup, resolveProxyApiName(providers, node.name))}
+                onTest={(event) =>
+                  testSingleNode(event, nodeOwner, target)}
               />
             </div>
           {/each}
@@ -779,7 +764,7 @@
         if (event.target === event.currentTarget) closeDetail();
       }}
       onkeydown={(event) => {
-        if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+        if (event.key === "Escape") {
           event.preventDefault();
           closeDetail();
         }
@@ -792,7 +777,7 @@
       >
         <div class="flex items-center justify-between px-4 py-3 border-b border-slate-300 dark:border-zinc-700">
           <div class="min-w-0 break-words pr-2 text-sm font-bold text-slate-900 dark:text-slate-100">{activeProvider}</div>
-          <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 rounded-lg" onclick={closeDetail}>
+          <button class="p-1.5 border border-slate-300 dark:border-zinc-700 text-slate-600 dark:text-zinc-300 rounded-lg" onclick={closeDetail} aria-label="关闭">
             <X size={14} />
           </button>
         </div>
@@ -811,14 +796,16 @@
           {/if}
 
           {#each provider?.proxies || [] as item, index (`${openedProvider}:${item.name}:${index}`)}
-            {@const nodeTesting = !!testingNodes[item.name]}
+            {@const nodeTesting = isNodeTesting(item.name, openedProvider)}
+            {@const target = resolveProxyTestTarget(proxies, providers, item.name, openedProvider, openedProvider)}
 
             <ProxyNodeTile
               name={item.name}
               type={item.type}
-              latency={readNodeLatency(item.name)}
+              latency={readNodeLatency(item.name, openedProvider)}
               testing={nodeTesting}
-              failed={!!failedNodes[item.name]}
+              failed={nodeFailed(item.name, openedProvider)}
+              testable={Boolean(target.apiName)}
               onTest={(event) => testProviderNode(event, openedProvider, item.name)}
             />
           {/each}
