@@ -57,6 +57,7 @@
   let selectingGroup = $state<string | null>(null);
   let error = $state("");
   let errorReason = $state<"unauthorized" | "unreachable" | "">("");
+  let retrying = $state(false);
 
   let groupSorts = $state<Record<string, NodeSortType>>({});
   let testState = $state<ProxyTestState>(emptyProxyTestState());
@@ -164,6 +165,7 @@
   }
 
   function testStart(owner: string, targets: ProxyTestTarget[]): boolean {
+    if (updatingProvider || switchingMode || selectingGroup) return false;
     const nodeKeys = [...new Set(targets.flatMap(testTargetNames))];
     if (testingOwners[owner] || nodeKeys.some((key) => testingNodes[key])) return false;
 
@@ -229,6 +231,20 @@
         errorReason = proxies ? "" : classified.reason;
         error = classified.message;
       }
+    }
+  }
+
+  async function retryLoadData() {
+    if (retrying) return;
+    retrying = true;
+    error = "";
+    errorReason = "";
+    loading = true;
+    try {
+      await loadData();
+    } finally {
+      loading = false;
+      retrying = false;
     }
   }
 
@@ -354,6 +370,7 @@
 
   async function testSingleNode(event: MouseEvent, owner: string, target: ProxyTestTarget) {
     event.stopPropagation();
+    if (updatingProvider || switchingMode || selectingGroup) return;
     if (!target.apiName) {
       errorReason = "";
       error = "无法确定节点的测速资源，请刷新代理信息后重试";
@@ -372,6 +389,7 @@
 
   async function testGroup(event: MouseEvent, groupName: string) {
     event.stopPropagation();
+    if (updatingProvider || switchingMode || selectingGroup) return;
     const owner = `group:${groupName}`;
     const targets = uniqueTargets(groupTargets(groupName));
     if (!targets.length) return;
@@ -390,7 +408,7 @@
 
   async function updateProvider(event: MouseEvent, name: string) {
     event.stopPropagation();
-    if (updatingProvider || targetsAreTesting(providerTargets(name))) return;
+    if (updatingProvider || switchingMode || selectingGroup || targetsAreTesting(providerTargets(name)) || Object.keys(testingOwners).length > 0) return;
     updatingProvider = name;
     try {
       error = "";
@@ -408,6 +426,7 @@
 
   async function testProvider(event: MouseEvent, name: string) {
     event.stopPropagation();
+    if (updatingProvider || switchingMode || selectingGroup) return;
     const owner = `provider:${name}`;
     const targets = uniqueTargets(providerTargets(name));
     if (!targets.length) return;
@@ -423,6 +442,7 @@
   }
 
   async function testProviderNode(event: MouseEvent, providerName: string, nodeName: string) {
+    if (updatingProvider || switchingMode || selectingGroup) return;
     const owner = `provider-node:${providerName}:${nodeName}`;
     await testSingleNode(event, owner, resolveProxyTestTarget(proxies, providers, nodeName, providerName, providerName));
   }
@@ -451,7 +471,7 @@
 <main class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-4">
   {#if !loading && error && errorReason}
     <div in:fade={{ duration: 180 }}>
-      <KernelAuthNotice reason={errorReason} />
+      <KernelAuthNotice reason={errorReason} message={error} onRetry={retryLoadData} retrying={retrying} showActions={true} />
     </div>
   {:else}
     <section in:fly={{ y: 10, duration: 220, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 p-3 transition-colors rounded-xl">
@@ -612,7 +632,7 @@
                               class="inline-flex items-center justify-center w-7 h-7 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
                             rounded-lg"
                               onclick={(event) => updateProvider(event, name)}
-                              disabled={providerIsBusy(name)}
+                              disabled={providerIsBusy(name) || Object.keys(testingOwners).length > 0}
                               title="更新 Provider"
                             >
                               <RefreshCw size={14} class={updatingProvider === name ? "animate-spin" : ""} />
@@ -816,5 +836,10 @@
 </main>
 
 {#if error && !errorReason}
-  <NoticeBanner tone="error" message={error} />
+  <NoticeBanner
+    tone="error"
+    message={error}
+    onRetry={error.includes("刷新代理信息失败:") ? () => void retryLoadData() : undefined}
+    {retrying}
+  />
 {/if}

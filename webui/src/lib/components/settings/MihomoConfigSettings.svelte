@@ -12,7 +12,7 @@
   type AddMode = "url" | "local";
   type Banner = { tone: "success" | "error"; message: string };
   type PendingAction = { kind: "switch" | "delete"; config: MihomoConfigFile };
-  type ConfigViewState = "loading" | "empty" | "no-results" | "list";
+  type ConfigViewState = "loading" | "error" | "empty" | "no-results" | "list";
 
   const MAX_LOCAL_CONFIG_BYTES = 5 * 1024 * 1024;
   const MODAL_EXIT_MS = 160;
@@ -20,6 +20,7 @@
   let configs = $state<MihomoConfigFile[]>([]);
   let loaded = $state(false);
   let loading = $state(false);
+  let loadError = $state("");
   let busyKey = $state("");
   let banner = $state<Banner | null>(null);
   let bannerResetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -62,7 +63,7 @@
         return config.name.toLowerCase().includes(query) || config.sourceUrl.toLowerCase().includes(query);
       });
   });
-  const configViewState = $derived<ConfigViewState>(!loaded ? "loading" : configs.length === 0 ? "empty" : visibleConfigs.length === 0 ? "no-results" : "list");
+  const configViewState = $derived<ConfigViewState>(!loaded || loading && configs.length === 0 ? "loading" : loadError && configs.length === 0 ? "error" : configs.length === 0 ? "empty" : visibleConfigs.length === 0 ? "no-results" : "list");
 
   const addModalHistory = useModalHistory("mihomo-config-add", resetAddModal);
   const actionModalHistory = useModalHistory("mihomo-config-action", resetActionModal);
@@ -170,10 +171,12 @@
     if (loading || busyKey) return;
     try {
       loading = true;
+      loadError = "";
       clearErrorBanner();
       configs = await actionApi.listMihomoConfigFiles();
     } catch (error) {
-      setFailure(`读取配置失败：${getErrorMessage(error)}`);
+      loadError = getErrorMessage(error);
+      if (configs.length > 0) setFailure(`读取配置失败：${loadError}`);
     } finally {
       loading = false;
       loaded = true;
@@ -530,6 +533,11 @@
           out:fade={{ duration: 100 }}
         >
           没有匹配“{searchQuery.trim()}”的配置
+        </div>
+      {:else if configViewState === "error"}
+        <div class="col-start-1 row-start-1 border border-red-300 bg-red-50 px-3 py-6 text-center text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 rounded-lg">
+          <p class="m-0">读取配置失败：{loadError}</p>
+          <button type="button" class="mt-3 underline underline-offset-2" onclick={loadConfigs}>重试</button>
         </div>
       {:else}
         <div class="col-start-1 row-start-1 min-w-0 space-y-2">

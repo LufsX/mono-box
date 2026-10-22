@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { fade } from "svelte/transition";
   import { RefreshCw, ChevronRight } from "@lucide/svelte";
   import { clashApi } from "$lib/api";
@@ -33,9 +33,15 @@
 
   let rules = $state<RuleRow[]>([]);
   let loading = $state(true);
+  let hasLoaded = $state(false);
   let error = $state("");
   let errorReason = $state<"unauthorized" | "unreachable" | "">("");
-  let busyIndex = $state<number | null>(null);
+  let loadFailed = $state(false);
+  let refreshing = $state(false);
+  let operationError = $state("");
+  let busyRuleIndexes = $state<Set<number>>(new Set());
+  let mutationSequence = 0;
+  let loadSequence = 0;
   let updatingProvider = $state<string | null>(null);
   let updatingAllProviders = $state(false);
 
@@ -43,58 +49,62 @@
     return resolveProxyChainParts(proxies, proxyChainCache, proxiesEpoch, target);
   }
 
-  async function fetchRuleProviders() {
-    const incoming = await clashApi.getRuleProviders();
-    const { fixed, names } = normalizeRuleProviders(incoming);
+  async function loadSnapshot() {
+    const requestSequence = mutationSequence;
+    const sequence = ++loadSequence;
+    const [incomingProviders, incomingProxies, response] = await Promise.all([
+      clashApi.getRuleProviders(),
+      clashApi.getProxies(),
+      clashApi.getRules(),
+    ]);
+    const { fixed, names } = normalizeRuleProviders(incomingProviders);
+    const list = Array.isArray(response) ? response : (response?.rules ?? []);
+    if (requestSequence !== mutationSequence || sequence !== loadSequence) return;
 
     ruleProviders = syncRecord(ruleProviders as Record<string, any> | null, fixed as Record<string, any>) as ClashRuleProviderMap;
-    ruleProviders = ruleProviders;
-
     providerNames = names;
-  }
-
-  async function fetchProxies() {
-    const incoming = (await clashApi.getProxies()) as ClashProxyMap;
-    proxies = syncRecord(proxies as Record<string, any> | null, incoming as Record<string, any>) as ClashProxyMap;
-    proxies = proxies;
-
+    proxies = syncRecord(proxies as Record<string, any> | null, incomingProxies as Record<string, any>) as ClashProxyMap;
     proxiesEpoch += 1;
     proxyChainCache.clear();
-  }
-
-  async function fetchRules() {
-    const res: any = await clashApi.getRules();
-    const list = Array.isArray(res) ? res : (res?.rules ?? []);
-
     rules = syncRules(rules, list);
+    hasLoaded = true;
   }
 
   async function refreshAll() {
-    loading = true;
+    if (refreshing || updatingProvider !== null || updatingAllProviders || busyRuleIndexes.size > 0) return;
+    refreshing = true;
+    loading = !hasLoaded;
+    operationError = "";
     try {
       error = "";
       errorReason = "";
-      await Promise.all([fetchRuleProviders(), fetchProxies(), fetchRules()]);
+      await loadSnapshot();
+      loadFailed = false;
     } catch (e: any) {
       const classified = classifyConnectionError(e);
       errorReason = classified.reason;
       error = classified.message;
+      loadFailed = !hasLoaded;
+      if (hasLoaded) operationError = `刷新规则失败：${classified.message}`;
     } finally {
       loading = false;
+      refreshing = false;
     }
   }
 
   async function updateProvider(event: MouseEvent, name: string) {
     event.preventDefault();
     event.stopPropagation();
-    if (updatingProvider || updatingAllProviders) return;
+    if (refreshing || updatingProvider || updatingAllProviders || busyRuleIndexes.size > 0) return;
+    mutationSequence += 1;
     updatingProvider = name;
+    operationError = "";
     try {
       await clashApi.updateRuleProvider(name);
-      await Promise.all([fetchRuleProviders(), fetchRules()]);
+      await loadSnapshot();
     } catch (e: any) {
       const message = e?.message || String(e);
-      error = `更新规则集合失败: ${message}`;
+      operationError = `更新规则集合失败: ${message}`;
     } finally {
       updatingProvider = null;
     }
@@ -103,50 +113,66 @@
   async function updateAllProviders(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
-    if (updatingAllProviders) return;
+    if (refreshing || updatingAllProviders || updatingProvider !== null || busyRuleIndexes.size > 0) return;
     if (!providerNames.length) return;
 
+    mutationSequence += 1;
     updatingAllProviders = true;
+    operationError = "";
     try {
-      error = "";
-
       for (const name of providerNames) {
         updatingProvider = name;
         await clashApi.updateRuleProvider(name);
       }
 
       updatingProvider = null;
-      await Promise.all([fetchRuleProviders(), fetchRules()]);
+      await loadSnapshot();
     } catch (e: any) {
       const message = e?.message || String(e);
-      error = `更新全部规则集合失败: ${message}`;
+      operationError = `更新全部规则集合失败: ${message}`;
     } finally {
       updatingProvider = null;
       updatingAllProviders = false;
     }
   }
 
-  async function toggleRuleEnabled(index: number) {
-    const row = rules[index];
+  async function toggleRuleEnabled(row: RuleRow) {
+    const index = row.index;
     if (!row) return;
-    if (busyIndex !== null) return;
+    const identity = `${row.type}\n${row.payload}\n${row.proxy}`;
+    if (refreshing || busyRuleIndexes.has(index) || updatingProvider !== null || updatingAllProviders) return;
 
     const nextEnabled = row.disabled;
     const nextDisabled = !nextEnabled;
 
-    busyIndex = index;
+    operationError = "";
+    mutationSequence += 1;
+    busyRuleIndexes = new Set(busyRuleIndexes).add(index);
+    let refreshAfterToggle = false;
     try {
       await clashApi.patchRulesDisable({ [String(index)]: nextDisabled });
-      row.disabled = nextDisabled;
+      const current = rules[index];
+      if (current && `${current.type}\n${current.payload}\n${current.proxy}` === identity) {
+        current.disabled = nextDisabled;
+      } else {
+        refreshAfterToggle = true;
+      }
     } catch (e: any) {
-      error = e?.message || String(e) || "Failed to update rule";
+      operationError = e?.message || String(e) || "Failed to update rule";
     } finally {
-      busyIndex = null;
+      const next = new Set(busyRuleIndexes);
+      next.delete(index);
+      busyRuleIndexes = next;
+      if (refreshAfterToggle) void refreshAll();
     }
   }
 
   onMount(() => {
     void refreshAll();
+  });
+
+  onDestroy(() => {
+    if (searchTimer) clearTimeout(searchTimer);
   });
 
   const filteredProviderNames = $derived.by(() => {
@@ -192,7 +218,7 @@
       rounded-lg"
       onclick={updateAllProviders}
       hidden={currentView !== "providers"}
-      disabled={updatingAllProviders || providerNames.length === 0}
+      disabled={refreshing || updatingAllProviders || updatingProvider !== null || busyRuleIndexes.size > 0 || providerNames.length === 0}
       title="更新全部规则集合"
     >
       <RefreshCw size={14} class={updatingAllProviders ? "animate-spin" : ""} />
@@ -215,11 +241,20 @@
     <div>规则禁用为临时操作，重启服务后失效。</div>
   </div>
 
+  {#if operationError || error && hasLoaded}
+    <div class="flex items-center justify-between gap-3 px-3 py-2 border border-red-300 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 text-xs rounded-lg" role="status">
+      {operationError || `刷新规则失败：${error}`}
+      {#if error && hasLoaded}
+        <button type="button" class="shrink-0 underline underline-offset-2" onclick={refreshAll} disabled={refreshing}>重试读取</button>
+      {/if}
+    </div>
+  {/if}
+
   {#if loading}
     <div class="py-12 flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm" in:fade={{ duration: 160 }}>正在加载规则...</div>
-  {:else if error}
+  {:else if loadFailed}
     <div in:fade={{ duration: 160 }}>
-      <KernelAuthNotice reason={errorReason || "unreachable"} />
+      <KernelAuthNotice reason={errorReason || "unreachable"} message={error} onRetry={refreshAll} showActions={true} />
     </div>
   {:else}
     {#key currentView}
@@ -265,7 +300,7 @@
                       <button
                         class="inline-flex items-center justify-center w-8 h-8 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60 rounded-lg"
                         onclick={(event) => updateProvider(event, name)}
-                        disabled={updatingProvider === name || updatingAllProviders}
+                        disabled={refreshing || updatingProvider !== null || updatingAllProviders || busyRuleIndexes.size > 0}
                         title="更新规则集合"
                       >
                         <RefreshCw size={14} class={updatingProvider === name ? "animate-spin" : ""} />
@@ -301,8 +336,8 @@
                         {/if}
                       </div>
 
-                      <div class={busyIndex === row.index ? "opacity-60 pointer-events-none" : ""}>
-                        <CheckBox id={`rule-enabled-${row.index}`} checked={enabled} onchange={() => toggleRuleEnabled(row.index)} bare variant="switch" />
+                      <div class={busyRuleIndexes.has(row.index) ? "opacity-60" : ""}>
+                        <CheckBox id={`rule-enabled-${row.index}`} checked={enabled} onchange={() => toggleRuleEnabled(row)} disabled={refreshing || busyRuleIndexes.has(row.index) || updatingProvider !== null || updatingAllProviders} bare variant="switch" />
                       </div>
                     </div>
 

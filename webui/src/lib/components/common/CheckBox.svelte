@@ -8,21 +8,22 @@
     label?: string;
     bare?: boolean;
     variant?: "checkbox" | "switch";
+    disabled?: boolean;
   }
 
-  let { id, checked, onchange, label, bare = false, variant = "checkbox" }: Props = $props();
+  let { id, checked, onchange, label, bare = false, variant = "checkbox", disabled = false }: Props = $props();
 </script>
 
 <label
   for={id}
-  class="group flex items-center gap-3 cursor-pointer select-none transition-colors {bare
+  class="group flex items-center gap-3 {disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} select-none transition-colors {bare
     ? ''
     : 'border border-slate-300 dark:border-zinc-700 px-3 py-2.5 bg-white dark:bg-zinc-950/50 hover:bg-slate-50 dark:hover:bg-zinc-800'} rounded-xl"
 >
   <div class="relative flex items-center justify-center">
     {#if variant === "switch"}
       <div class="relative w-10 h-6 group-active:scale-[0.98]">
-        <input {id} type="checkbox" {checked} {onchange} class="peer sr-only" />
+        <input {id} type="checkbox" {checked} {onchange} {disabled} class="peer sr-only" />
         <div
           class="absolute inset-0 border border-slate-300 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 transition-colors
           peer-checked:bg-slate-800 peer-checked:border-slate-800
@@ -35,7 +36,7 @@
         ></div>
       </div>
     {:else}
-      <input {id} type="checkbox" {checked} {onchange} class="peer sr-only" />
+      <input {id} type="checkbox" {checked} {onchange} {disabled} class="peer sr-only" />
       <div
         class="h-5 w-5 border-2 border-slate-300 dark:border-zinc-600 bg-transparent transition-all
         peer-checked:bg-slate-800 peer-checked:border-slate-800

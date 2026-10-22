@@ -15,7 +15,7 @@
   type LogLevelFilter = "all" | ClashLogLevel;
   type StreamState = "connecting" | "connected" | "closed" | "error";
   import { LOG_ROW_LIMIT, mergeLogRows, normalizeLogEntry, type LogRow } from "$lib/page-state/logs";
-  type FileBanner = { tone: "error" | "notice"; message: string };
+  type FileBanner = { tone: "error" | "notice"; message: string; retry?: () => void };
 
   const LEVEL_OPTIONS: { value: LogLevelFilter; label: string }[] = [
     { value: "all", label: "全部" },
@@ -24,7 +24,6 @@
     { value: "warning", label: "Warning" },
     { value: "error", label: "Error" },
   ];
-  const LOG_DETAIL_RENDER_DELAY_MS = 240;
   const LOG_DETAIL_MAX_BYTES = 10 * 1024 * 1024;
 
   let selectedLevel = $state<LogLevelFilter>("all");
@@ -36,9 +35,9 @@
   let logReport = $state<LogSizeReport>({ files: [], totalBytes: 0, count: 0 });
   let logFileLoading = $state(false);
   let clearingFiles = $state(false);
-  let terminalClearing = $state(false);
   let openingLogPath = $state("");
   let fileError = $state("");
+  let fileErrorRetry = $state<(() => void) | undefined>(undefined);
   let fileNotice = $state("");
   let detailOpen = $state(false);
   let detailFile = $state<LogFileInfo | null>(null);
@@ -55,7 +54,6 @@
   let stickToTop = $state(true);
   let rowId = 0;
   let socketEpoch = 0;
-  let terminalClearToken = 0;
   let detailToken = 0;
   let detailLoadToken = 0;
   let fileNoticeTimer: ReturnType<typeof window.setTimeout> | undefined;
@@ -67,7 +65,6 @@
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let connectTimer: ReturnType<typeof setTimeout> | undefined;
   let retryCount = 0;
-  let detailRenderTimer: ReturnType<typeof setTimeout> | undefined;
 
   function discardPendingLogs() {
     clearTimeout(flushTimer);
@@ -77,7 +74,7 @@
 
   async function flushLogs() {
     flushTimer = undefined;
-    if (destroyed || paused || terminalClearing) { pendingRows = []; return; }
+    if (destroyed || paused) { pendingRows = []; return; }
     const container = logsContainer;
     const anchor = !stickToTop && container
       ? [...container.querySelectorAll<HTMLElement>("[data-log-id]")].find((row) => row.getBoundingClientRect().bottom > container.getBoundingClientRect().top)
@@ -96,7 +93,7 @@
     resetLogDetail();
   });
   const sortedLogFiles = $derived([...logReport.files].sort((a, b) => b.size - a.size || a.path.localeCompare(b.path)));
-  const fileBanner = $derived<FileBanner | null>(fileError ? { tone: "error", message: fileError } : fileNotice ? { tone: "notice", message: fileNotice } : null);
+  const fileBanner = $derived<FileBanner | null>(fileError ? { tone: "error", message: fileError, retry: fileErrorRetry } : fileNotice ? { tone: "notice", message: fileNotice } : null);
   const detailDisplayName = $derived(detailFile ? displayLogName(detailFile.path) : "日志详情");
   const detailRelativePath = $derived(detailFile ? displayPath(detailFile.path) : "");
   const detailTooLarge = $derived(detailFile ? detailFile.size >= LOG_DETAIL_MAX_BYTES : false);
@@ -171,7 +168,7 @@
   }
 
   function appendLog(data: ClashLogEntry) {
-    if (destroyed || paused || terminalClearing) return;
+    if (destroyed || paused) return;
     pendingRows.push({ ...normalizeLogEntry(data), id: rowId++, time: timeNow() });
     if (pendingRows.length > LOG_ROW_LIMIT) pendingRows.splice(0, pendingRows.length - LOG_ROW_LIMIT);
     if (flushTimer === undefined) flushTimer = setTimeout(() => void flushLogs(), 100);
@@ -281,16 +278,10 @@
   }
 
   async function clearVisibleLogs() {
-    if (terminalClearing || logRows.length === 0) return;
+    if (logRows.length === 0) return;
 
-    const token = ++terminalClearToken;
-    terminalClearing = true;
     discardPendingLogs();
     logRows = [];
-
-    await delay(120);
-    if (token !== terminalClearToken) return;
-    terminalClearing = false;
   }
 
   function typeClass(type: string): string {
@@ -334,7 +325,6 @@
   }
 
   function resetLogDetail() {
-    clearTimeout(detailRenderTimer);
     detailToken += 1;
     detailLoadToken += 1;
     detailOpen = false;
@@ -365,7 +355,7 @@
     }
   }
 
-  function openLogDetail(file: LogFileInfo) {
+  async function openLogDetail(file: LogFileInfo) {
     const token = ++detailToken;
 
     detailFile = { ...file };
@@ -380,14 +370,12 @@
     }
     detailOpen = true;
 
-    clearTimeout(detailRenderTimer);
-    detailRenderTimer = window.setTimeout(() => {
-      if (token !== detailToken || !detailOpen) return;
-      detailRenderReady = true;
-      if (file.size < LOG_DETAIL_MAX_BYTES) {
-        void loadLogDetail(file, token);
-      }
-    }, LOG_DETAIL_RENDER_DELAY_MS);
+    await tick();
+    if (token !== detailToken || !detailOpen) return;
+    detailRenderReady = true;
+    if (file.size < LOG_DETAIL_MAX_BYTES) {
+      void loadLogDetail(file, token);
+    }
   }
 
   function closeLogDetail() {
@@ -400,12 +388,16 @@
     try {
       openingLogPath = file.path;
       fileError = "";
+      fileErrorRetry = undefined;
       clearFileNotice();
       await actionApi.openLogFileLocation(file.path);
       if (destroyed) return;
       showFileNotice(import.meta.env.MODE === "production" ? "已打开日志文件位置" : "已下载日志文件");
     } catch (e) {
-      if (!destroyed) fileError = e instanceof Error ? e.message : String(e);
+      if (!destroyed) {
+        fileError = e instanceof Error ? e.message : String(e);
+        fileErrorRetry = () => void openLogFileLocation(file);
+      }
     } finally {
       openingLogPath = "";
     }
@@ -418,14 +410,18 @@
     try {
       logFileLoading = true;
       fileError = "";
+      fileErrorRetry = undefined;
       clearFileNotice();
       const report = await actionApi.getLogSizeReport();
       if (!destroyed) logReport = report;
     } catch (e) {
-      if (!destroyed) fileError = e instanceof Error ? e.message : String(e);
+      if (!destroyed) {
+        fileError = e instanceof Error ? e.message : String(e);
+        fileErrorRetry = () => void refreshLogFiles();
+      }
     } finally {
       await settleLogFilesBodyHeight();
-      logFileLoading = false;
+      if (!destroyed) logFileLoading = false;
     }
   }
 
@@ -436,16 +432,15 @@
   async function clearLogFiles() {
     if (destroyed || clearingFiles || logFileLoading || openingLogPath) return;
 
-    const minimumClearAnimation = delay(180);
     lockLogFilesBodyHeight();
 
     try {
       clearingFiles = true;
       fileError = "";
+      fileErrorRetry = undefined;
       clearFileNotice();
       const result = await actionApi.clearLogFiles();
       const nextReport = await actionApi.getLogSizeReport();
-      await minimumClearAnimation;
       if (destroyed) return;
       logReport = nextReport;
       if (detailOpen) closeLogDetail();
@@ -453,7 +448,6 @@
         showFileNotice("内核运行中，已保留当前日志文件");
       }
     } catch (e) {
-      await minimumClearAnimation;
       if (!destroyed) fileError = e instanceof Error ? e.message : String(e);
     } finally {
       await settleLogFilesBodyHeight();
@@ -476,7 +470,7 @@
 
   $effect(() => {
     const visibleCount = filteredLogRows.length;
-    if (visibleCount === 0 || !logsContainer || !stickToTop || terminalClearing) return;
+    if (visibleCount === 0 || !logsContainer || !stickToTop) return;
 
     void tick().then(() => {
       if (!logsContainer || !stickToTop) return;
@@ -486,9 +480,7 @@
 
   onDestroy(() => {
     destroyed = true;
-    clearTimeout(detailRenderTimer);
     disconnectLogStream();
-    terminalClearToken += 1;
     detailToken += 1;
     detailLoadToken += 1;
     if (fileNoticeTimer) {
@@ -551,7 +543,7 @@
             type="button"
             class="inline-flex h-8 w-8 items-center justify-center border border-zinc-700 bg-zinc-950 text-zinc-300 hover:bg-zinc-800 transition-colors disabled:cursor-not-allowed disabled:opacity-40 rounded-lg"
             onclick={clearVisibleLogs}
-            disabled={terminalClearing || logRows.length === 0}
+            disabled={logRows.length === 0}
             title="清屏"
             aria-label="清屏"
           >
@@ -682,7 +674,7 @@
   </section>
 
   {#if fileBanner}
-    <NoticeBanner tone={fileBanner.tone} message={fileBanner.message} />
+    <NoticeBanner tone={fileBanner.tone} message={fileBanner.message} onRetry={fileBanner.retry} retrying={logFileLoading || clearingFiles || !!openingLogPath} />
   {/if}
 
   {#if detailOpen}

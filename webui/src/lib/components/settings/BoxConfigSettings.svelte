@@ -14,20 +14,26 @@
     boxConfig = $bindable<BoxConfigFormValues>(),
     boxConfigSaved,
     boxConfigLoading,
+    boxConfigSaving,
+    boxConfigLoadFailed,
     boxConfigError = $bindable<string>(),
     clashApiChecking,
     clashApiCheckOk,
     onsave,
     oncheckapi,
+    onreload,
   } = $props<{
     boxConfig: BoxConfigFormValues;
     boxConfigSaved: boolean;
     boxConfigLoading: boolean;
+    boxConfigSaving: boolean;
+    boxConfigLoadFailed: boolean;
     boxConfigError: string;
     clashApiChecking: boolean;
     clashApiCheckOk: boolean | null;
     onsave: () => void | Promise<void>;
     oncheckapi: () => void | Promise<void>;
+    onreload: () => void | Promise<void>;
   }>();
 
   const typedToggleModeOrder = $derived(boxConfig.toggleModeOrder as ProxyMode[]);
@@ -152,9 +158,13 @@
   {#if boxConfigError}
     <div transition:fly={{ y: -8, duration: 220, easing: cubicOut }} class="px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
       {boxConfigError}
+      {#if boxConfigLoadFailed}
+        <button type="button" class="ml-2 underline underline-offset-2" onclick={onreload} disabled={boxConfigLoading}>重试读取</button>
+      {/if}
     </div>
   {/if}
 
+  <fieldset disabled={boxConfigLoading || boxConfigSaving || boxConfigLoadFailed} class="m-0 min-w-0 space-y-4 border-0 p-0">
   <div class="flex flex-col gap-2">
     <label for="box-api-port" class="text-sm font-bold text-slate-900 dark:text-slate-200">Clash API Port</label>
     <div class="grid grid-cols-[minmax(0,1fr)_auto] items-stretch gap-2">
@@ -162,7 +172,6 @@
         id="box-api-port"
         type="number"
         bind:value={boxConfig.clashApiPort}
-        disabled={boxConfigLoading}
         class="min-w-0 px-3 py-2 border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-900 dark:text-slate-200 outline-none focus:border-slate-800 dark:focus:border-slate-400 transition-colors disabled:opacity-50 rounded-lg"
         placeholder="9090"
       />
@@ -462,7 +471,7 @@
   <div class="flex gap-3 pt-2">
     <button
       type="submit"
-      disabled={boxConfigLoading}
+      disabled={boxConfigLoading || boxConfigSaving || boxConfigLoadFailed}
       class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none disabled:opacity-80 hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px rounded-lg"
     >
       <div class="grid place-items-center">
@@ -474,10 +483,11 @@
         {:else}
           <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="flex items-center gap-2 col-start-1 row-start-1">
             <Save size={16} />
-            保存配置
+            {boxConfigSaving ? "正在保存" : "保存配置"}
           </span>
         {/if}
       </div>
     </button>
   </div>
+  </fieldset>
 </form>

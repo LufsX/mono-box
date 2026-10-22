@@ -6,9 +6,13 @@
   let {
     tone = "notice",
     message = "",
+    onRetry,
+    retrying = false,
   }: {
     tone?: NoticeBannerTone;
     message: string;
+    onRetry?: () => void;
+    retrying?: boolean;
   } = $props();
 
   const toneClass: Record<NoticeBannerTone, string> = {
@@ -19,8 +23,11 @@
 </script>
 
 <div class="notice-banner-toast" in:fade={{ duration: 120 }} out:fade={{ duration: 100 }}>
-  <div class={`flex min-h-9 items-start border px-3 py-2 text-xs shadow-lg rounded-lg ${toneClass[tone]}`}>
+  <div class={`flex min-h-9 items-center justify-between gap-3 border px-3 py-2 text-xs shadow-lg rounded-lg ${toneClass[tone]}`}>
     <span class="block whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{message}</span>
+    {#if onRetry}
+      <button type="button" class="shrink-0 underline underline-offset-2 pointer-events-auto disabled:opacity-60" onclick={onRetry} disabled={retrying}>{retrying ? "正在重试" : "重试"}</button>
+    {/if}
   </div>
 </div>
 

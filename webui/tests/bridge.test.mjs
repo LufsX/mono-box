@@ -98,6 +98,13 @@ test('spawn errors reject without turning ordinary nonzero exits into exceptions
   calls[0].child.emit('exit', -1);
 });
 
+test('synchronous native spawn errors reject instead of leaving a pending command', async (t) => {
+  captureSpawns(t);
+  const error = new Error('native bridge rejected the command');
+  window.ksu.spawn = () => { throw error; };
+  await assert.rejects(runCommand('unavailable'), (caught) => caught === error);
+});
+
 test('missing native spawn rejects instead of leaving a pending command', async (t) => {
   captureSpawns(t);
   delete window.ksu.spawn;

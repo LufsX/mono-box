@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount } from "svelte";
   import { clashApi } from "$lib/api";
 
   let { onLog }: { onLog?: (msg: string, type?: "info" | "success" | "error" | "cmd") => void } = $props();
 
   let enabled = $state(false);
   let upgrading = $state(false);
-  let refreshBusy = false;
-  let timer: ReturnType<typeof setInterval>;
+  let refreshBusy = $state(false);
+  let loadError = $state("");
+  let switching = $state(false);
 
   async function refresh() {
     if (refreshBusy) return;
@@ -17,8 +18,11 @@
       if (config.tun && typeof config.tun.enable === "boolean") {
         enabled = config.tun.enable;
       }
-    } catch {
-      // silent
+      loadError = "";
+      return true;
+    } catch (err) {
+      loadError = err instanceof Error ? err.message : String(err);
+      return false;
     } finally {
       refreshBusy = false;
     }
@@ -26,6 +30,7 @@
 
   async function handleSwitch(value: boolean | "upgrade") {
     if (value === "upgrade") {
+      if (upgrading || switching) return;
       upgrading = true;
       onLog?.("> Upgrading core...", "cmd");
       try {
@@ -46,24 +51,24 @@
       return;
     }
 
+    if (switching || upgrading) return;
+    switching = true;
     onLog?.(`> Switching TUN mode to ${value}...`, "cmd");
     try {
       await clashApi.setTun(value);
       enabled = value;
-      onLog?.(`[Core] TUN mode switched to ${value}`, "success");
+      const refreshed = await refresh();
+      onLog?.(refreshed ? `[Core] TUN mode switched to ${value}` : `[Core] TUN mode switched to ${value}, but status refresh failed`, refreshed ? "success" : "info");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onLog?.(msg, "error");
+    } finally {
+      switching = false;
     }
   }
 
   onMount(() => {
-    refresh();
-    timer = setInterval(refresh, 500);
-  });
-
-  onDestroy(() => {
-    clearInterval(timer);
+    void refresh();
   });
 </script>
 
@@ -82,16 +87,22 @@
           class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px first:ml-0 rounded-l-lg {enabled
             ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
             : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
-          onclick={() => handleSwitch(true)}>ON</button
+          onclick={() => handleSwitch(true)} disabled={refreshBusy || switching || upgrading}>ON</button
         >
         <button
           class="px-4 py-1.5 transition-all duration-300 outline-none border -ml-px rounded-r-lg {!enabled
             ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
             : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
-          onclick={() => handleSwitch(false)}>OFF</button
+          onclick={() => handleSwitch(false)} disabled={refreshBusy || switching || upgrading}>OFF</button
         >
       </div>
     </div>
+    {#if loadError}
+      <div class="flex items-center justify-between gap-3 border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300 rounded-lg" role="status">
+        <span>无法读取 TUN 状态：{loadError}</span>
+        <button type="button" class="shrink-0 underline underline-offset-2" onclick={() => refresh()} disabled={refreshBusy}>重试</button>
+      </div>
+    {/if}
     <div class="h-px bg-slate-200 dark:bg-zinc-800 w-full"></div>
     <div class="flex items-center justify-between">
       <div class="flex flex-col">
@@ -102,7 +113,7 @@
         class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 px-4 py-1.5 text-sm font-bold hover:bg-slate-100 dark:hover:bg-zinc-800 transition-all duration-300 text-slate-800 dark:text-slate-200 active:bg-slate-200 dark:active:bg-zinc-700 active:translate-y-px outline-none disabled:opacity-60
         rounded-lg"
         onclick={() => handleSwitch("upgrade")}
-        disabled={upgrading}>{upgrading ? "正在更新" : "立即更新"}</button
+        disabled={upgrading || switching}>{upgrading ? "正在更新" : "立即更新"}</button
       >
     </div>
   </div>

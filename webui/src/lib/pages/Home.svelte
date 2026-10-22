@@ -127,12 +127,16 @@
   }
 
   async function runAction(action: string) {
-    await execute(action);
+    const result = await execute(action);
+    if (!result.success) return;
 
     if (["start", "restart", "stop"].includes(action)) {
-      setTimeout(() => {
-        checkCoreStatus();
-      }, 2000);
+      const attempts = action === "stop" ? 1 : 5;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        await checkCoreStatus();
+        if (action === "stop" || coreStatus?.ok || attempt === attempts - 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
     }
   }
 
@@ -141,7 +145,6 @@
     startingFromNotice = true;
     try {
       await runAction("start");
-      await handleRefresh();
     } finally {
       startingFromNotice = false;
     }

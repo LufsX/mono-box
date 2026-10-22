@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { onMount } from "svelte";
   import { stores, actions } from "$lib/api";
 
   let { onLog }: { onLog?: (msg: string, type?: "info" | "success" | "error" | "cmd") => void } = $props();
 
   const currentMode = stores.currentMode;
   const modes = ["rule", "global", "direct"];
+  let switchingMode = $state<string | null>(null);
 
   async function handleSwitch(newMode: string) {
-    if (newMode === $currentMode) return;
+    if (newMode === $currentMode || switchingMode !== null) return;
+    switchingMode = newMode;
     onLog?.(`> Switching proxy mode to ${newMode}...`, "cmd");
     try {
       await actions.switchClashMode(newMode as import("$lib/api").ProxyMode);
@@ -16,12 +17,10 @@
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       onLog?.(msg, "error");
+    } finally {
+      switchingMode = null;
     }
   }
-
-  onMount(() => {
-    actions.refreshConfigs();
-  });
 </script>
 
 <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">
@@ -36,6 +35,8 @@
             ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
             : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
           onclick={() => handleSwitch(m)}
+          disabled={switchingMode !== null}
+          aria-busy={switchingMode === m}
         >
           {m.toUpperCase()}
         </button>

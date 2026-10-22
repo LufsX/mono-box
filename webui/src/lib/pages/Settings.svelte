@@ -28,6 +28,8 @@
   let boxConfig = $state<BoxConfigFormValues>(createDefaultBoxConfigFormValues());
   let boxConfigSaved = $state(false);
   let boxConfigLoading = $state(false);
+  let boxConfigLoaded = $state(false);
+  let boxConfigSaving = $state(false);
   let boxConfigError = $state("");
   let clashApiChecking = $state(false);
   let clashApiCheckOk = $state<boolean | null>(null);
@@ -39,6 +41,7 @@
   let saveResetTimer: ReturnType<typeof setTimeout> | undefined;
   let homeLayout = $state(loadHomeLayoutSettings());
   let homeLayoutSaved = $state(false);
+  let homeLayoutSaving = $state(false);
   let homeLayoutReseted = $state(false);
   let homeLayoutError = $state("");
   let homeLayoutSaveResetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -130,11 +133,13 @@
   }
 
   async function loadBoxConfig() {
+    if (boxConfigLoading) return;
     try {
       boxConfigLoading = true;
       boxConfigError = "";
       boxConfig = await getBoxConfigForm();
       saveStoredClashConfig({ port: boxConfig.clashApiPort, secret: boxConfig.clashApiSecret });
+      boxConfigLoaded = true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       boxConfigError = `无法读取 box.config 文件: ${message}`;
@@ -145,8 +150,9 @@
   }
 
   async function saveBoxConfig() {
+    if (!boxConfigLoaded || boxConfigSaving) return;
     try {
-      boxConfigLoading = true;
+      boxConfigSaving = true;
       boxConfigError = "";
 
       await saveBoxConfigForm(boxConfig);
@@ -158,11 +164,12 @@
       boxConfigError = `保存失败: ${message}`;
       console.error("Failed to save box.config:", e);
     } finally {
-      boxConfigLoading = false;
+      boxConfigSaving = false;
     }
   }
 
   async function checkClashApiVersion() {
+    if (clashApiChecking) return;
     try {
       if (clashApiCheckResetTimer) clearTimeout(clashApiCheckResetTimer);
       clashApiChecking = true;
@@ -214,14 +221,26 @@
   }
 
   async function saveHomeLayout() {
+    if (homeLayoutSaving) return;
+    const settings = {
+      ...homeLayout,
+      moduleOrder: [...homeLayout.moduleOrder],
+      hiddenModules: [...homeLayout.hiddenModules],
+      bottomTabOrder: [...homeLayout.bottomTabOrder],
+      bottomTabHidden: [...homeLayout.bottomTabHidden],
+    };
     try {
+      homeLayoutSaving = true;
       homeLayoutError = "";
-      saveHomeLayoutSettings(homeLayout);
+      await actionApi.setEdgeToEdge(settings.edgeToEdge);
+      saveHomeLayoutSettings(settings);
+      homeLayout = settings;
       triggerHomeLayoutSavedState();
-      await actionApi.setEdgeToEdge(homeLayout.edgeToEdge);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       homeLayoutError = `保存首页布局失败: ${message}`;
+    } finally {
+      homeLayoutSaving = false;
     }
   }
 
@@ -237,6 +256,12 @@
       homeLayoutResetStateTimer = undefined;
     }, 1800);
   }
+
+  function markHomeLayoutEdited() {
+    homeLayoutSaved = false;
+    homeLayoutReseted = false;
+    homeLayoutError = "";
+  }
 </script>
 
 <div class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
@@ -245,11 +270,11 @@
   </CollapsibleSection>
 
   <CollapsibleSection title="box.config 配置" controls="box-config-settings" bind:open={boxConfigOpen} onchange={(open) => saveSettingsSectionState({ boxConfig: open })}>
-    <BoxConfigSettings bind:boxConfig {boxConfigSaved} {boxConfigLoading} bind:boxConfigError {clashApiChecking} {clashApiCheckOk} onsave={saveBoxConfig} oncheckapi={checkClashApiVersion} />
+    <BoxConfigSettings bind:boxConfig {boxConfigSaved} {boxConfigLoading} {boxConfigSaving} boxConfigLoadFailed={!boxConfigLoading && !boxConfigLoaded} bind:boxConfigError {clashApiChecking} {clashApiCheckOk} onsave={saveBoxConfig} oncheckapi={checkClashApiVersion} onreload={loadBoxConfig} />
   </CollapsibleSection>
 
   <CollapsibleSection title="WEB UI 设置" controls="web-ui-settings" delay={50} bind:open={webUiSettingsOpen} onchange={(open) => saveSettingsSectionState({ webUi: open })}>
-    <WebUiSettings bind:homeLayout {homeLayoutError} {homeLayoutSaved} {homeLayoutReseted} defaultPanelUrl={getDefaultPanelUrl()} onsave={saveHomeLayout} onreset={resetHomeLayoutToDefault} />
+    <WebUiSettings bind:homeLayout {homeLayoutError} {homeLayoutSaved} {homeLayoutReseted} saving={homeLayoutSaving} defaultPanelUrl={getDefaultPanelUrl()} onsave={saveHomeLayout} onreset={resetHomeLayoutToDefault} onedit={markHomeLayoutEdited} />
   </CollapsibleSection>
 
   <CollapsibleSection title="关于" controls="about-settings" delay={80} bind:open={aboutOpen} onchange={(open) => saveSettingsSectionState({ about: open })}>

@@ -11,7 +11,9 @@
 
   let memoryWs: WebSocket | null = null;
   let trafficWs: WebSocket | null = null;
-  let reconnectTimeout: number | null = null;
+  let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
+  let connectionGeneration = 0;
+  let mounted = false;
 
   function formatSpeed(bps: number): string {
     const kbps = bps / 1024;
@@ -21,76 +23,108 @@
   }
 
   async function connectWebSockets() {
+    if (!mounted) return;
+    const generation = ++connectionGeneration;
+
     try {
-      // 连接内存监控 WebSocket
-      memoryWs = await clashApi.createMemoryWebSocket(
+      const nextMemoryWs = await clashApi.createMemoryWebSocket(
         (data) => {
+          if (generation !== connectionGeneration) return;
           memory = data.inuse;
         },
         () => {
+          if (generation !== connectionGeneration) return;
           console.error("Memory WebSocket error, reconnecting...");
           scheduleReconnect();
         },
       );
+      nextMemoryWs.onerror = () => {
+        if (generation === connectionGeneration) scheduleReconnect();
+      };
+      if (!mounted || generation !== connectionGeneration) {
+        nextMemoryWs.close();
+        return;
+      }
+      memoryWs = nextMemoryWs;
 
       memoryWs.onclose = () => {
+        if (generation !== connectionGeneration) return;
         console.log("Memory WebSocket closed, reconnecting...");
         scheduleReconnect();
       };
 
-      // 连接流量监控 WebSocket
-      trafficWs = await clashApi.createTrafficWebSocket(
+      const nextTrafficWs = await clashApi.createTrafficWebSocket(
         (data) => {
+          if (generation !== connectionGeneration) return;
           uploadSpeed = data.up;
           downloadSpeed = data.down;
           uploadTotal = data.upTotal;
           downloadTotal = data.downTotal;
         },
         () => {
+          if (generation !== connectionGeneration) return;
           console.error("Traffic WebSocket error, reconnecting...");
           scheduleReconnect();
         },
       );
+      nextTrafficWs.onerror = () => {
+        if (generation === connectionGeneration) scheduleReconnect();
+      };
+      if (!mounted || generation !== connectionGeneration) {
+        nextTrafficWs.close();
+        return;
+      }
+      trafficWs = nextTrafficWs;
 
       trafficWs.onclose = () => {
+        if (generation !== connectionGeneration) return;
         console.log("Traffic WebSocket closed, reconnecting...");
         scheduleReconnect();
       };
     } catch (e) {
+      if (!mounted || generation !== connectionGeneration) return;
       console.error("Failed to connect WebSockets:", e);
       scheduleReconnect();
     }
   }
 
   function scheduleReconnect() {
-    if (reconnectTimeout) return;
+    if (!mounted || reconnectTimeout !== undefined) return;
 
     reconnectTimeout = window.setTimeout(() => {
-      reconnectTimeout = null;
+      reconnectTimeout = undefined;
+      connectionGeneration += 1;
       closeWebSockets();
-      connectWebSockets();
+      void connectWebSockets();
     }, 3000);
   }
 
   function closeWebSockets() {
     if (memoryWs) {
+      memoryWs.onclose = null;
+      memoryWs.onerror = null;
       memoryWs.close();
       memoryWs = null;
     }
     if (trafficWs) {
+      trafficWs.onclose = null;
+      trafficWs.onerror = null;
       trafficWs.close();
       trafficWs = null;
     }
   }
 
   onMount(() => {
-    connectWebSockets();
+    mounted = true;
+    void connectWebSockets();
   });
 
   onDestroy(() => {
-    if (reconnectTimeout) {
+    mounted = false;
+    connectionGeneration += 1;
+    if (reconnectTimeout !== undefined) {
       clearTimeout(reconnectTimeout);
-      reconnectTimeout = null;
+      reconnectTimeout = undefined;
     }
     closeWebSockets();
   });

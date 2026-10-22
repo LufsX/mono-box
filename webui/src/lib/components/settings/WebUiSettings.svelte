@@ -12,17 +12,21 @@
     homeLayoutError,
     homeLayoutSaved,
     homeLayoutReseted,
+    saving,
     defaultPanelUrl,
     onsave,
     onreset,
+    onedit,
   } = $props<{
     homeLayout: HomeLayoutSettings;
     homeLayoutError: string;
     homeLayoutSaved: boolean;
     homeLayoutReseted: boolean;
+    saving: boolean;
     defaultPanelUrl: string;
     onsave: () => void | Promise<void>;
     onreset: () => void;
+    onedit: () => void;
   }>();
 
   const bottomTabOrder = $derived(homeLayout.bottomTabOrder as BottomTabId[]);
@@ -33,6 +37,8 @@
   }
 
   function toggleModuleVisible(moduleId: HomeModuleId) {
+    if (saving) return;
+    onedit();
     if (isModuleVisible(moduleId)) {
       homeLayout.hiddenModules.push(moduleId);
       return;
@@ -43,9 +49,11 @@
   }
 
   function moveModule(index: number, direction: -1 | 1) {
+    if (saving) return;
     const target = index + direction;
     if (target < 0 || target >= moduleOrder.length) return;
 
+    onedit();
     const order = homeLayout.moduleOrder;
     const [item] = order.splice(index, 1);
     order.splice(target, 0, item);
@@ -57,8 +65,9 @@
   }
 
   function toggleBottomTabVisible(tabId: BottomTabId) {
-    if (isFixedBottomTab(tabId)) return;
+    if (saving || isFixedBottomTab(tabId)) return;
 
+    onedit();
     if (isBottomTabVisible(tabId)) {
       homeLayout.bottomTabHidden.push(tabId);
       return;
@@ -69,9 +78,11 @@
   }
 
   function moveBottomTab(index: number, direction: -1 | 1) {
+    if (saving) return;
     const target = index + direction;
     if (target < 0 || target >= bottomTabOrder.length) return;
 
+    onedit();
     const order = homeLayout.bottomTabOrder;
     const [item] = order.splice(index, 1);
     order.splice(target, 0, item);
@@ -79,6 +90,7 @@
 </script>
 
 <div class="p-4 space-y-4">
+  <fieldset disabled={saving} class="m-0 min-w-0 border-0 p-0" oninput={onedit} onchange={onedit}>
   {#if homeLayoutError}
     <div transition:fly={{ y: -8, duration: 220, easing: cubicOut }} class="px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
       {homeLayoutError}
@@ -87,7 +99,7 @@
 
   <div class="flex flex-col gap-2">
     <label for="edge-to-edge" class="text-sm font-bold text-slate-900 dark:text-slate-200">启用沉浸式全面屏 (Edge-to-Edge)</label>
-    <CheckBox id="edge-to-edge" checked={homeLayout.edgeToEdge} onchange={() => (homeLayout.edgeToEdge = !homeLayout.edgeToEdge)} label="跟随系统手势区域扩展内容" />
+    <CheckBox id="edge-to-edge" checked={homeLayout.edgeToEdge} onchange={() => { onedit(); homeLayout.edgeToEdge = !homeLayout.edgeToEdge; }} label="跟随系统手势区域扩展内容" />
     <span class="text-xs text-slate-500 dark:text-slate-400">启用后将由系统处理状态栏和底部手势区域的沉浸显示</span>
   </div>
 
@@ -95,7 +107,7 @@
 
   <div class="flex flex-col gap-2">
     <label for="rounded-ui" class="text-sm font-bold text-slate-900 dark:text-slate-200">界面风格</label>
-    <CheckBox id="rounded-ui" checked={homeLayout.rounded} onchange={() => (homeLayout.rounded = !homeLayout.rounded)} label="使用圆润风格" />
+    <CheckBox id="rounded-ui" checked={homeLayout.rounded} onchange={() => { onedit(); homeLayout.rounded = !homeLayout.rounded; }} label="使用圆润风格" />
     <span class="text-xs text-slate-500 dark:text-slate-400">开启后所有元素使用圆角</span>
   </div>
 
@@ -198,7 +210,8 @@
     <button
       type="button"
       onclick={onsave}
-      class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px rounded-lg"
+      disabled={saving}
+      class="group relative overflow-hidden flex-1 border border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 px-4 py-2.5 text-sm font-bold transition-all duration-300 outline-none hover:bg-slate-700 dark:hover:bg-slate-300 hover:shadow-[0_8px_20px_rgba(15,23,42,0.15)] active:translate-y-px disabled:cursor-wait disabled:opacity-60 rounded-lg"
     >
       <div class="grid place-items-center">
         {#if homeLayoutSaved}
@@ -209,7 +222,7 @@
         {:else}
           <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="flex items-center gap-2 col-start-1 row-start-1">
             <Save size={16} />
-            保存 WEB UI 设置
+            {saving ? "正在保存" : "保存 WEB UI 设置"}
           </span>
         {/if}
       </div>
@@ -217,15 +230,17 @@
     <button
       type="button"
       onclick={onreset}
-      class="group relative overflow-hidden border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 px-4 py-2.5 text-sm font-bold transition-colors outline-none hover:bg-slate-100 dark:hover:bg-zinc-900 rounded-lg"
+      disabled={saving}
+      class="group relative overflow-hidden border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-700 dark:text-slate-300 px-4 py-2.5 text-sm font-bold transition-colors outline-none hover:bg-slate-100 dark:hover:bg-zinc-900 disabled:opacity-60 rounded-lg"
     >
       <div class="grid place-items-center">
         {#if homeLayoutReseted}
-          <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="col-start-1 row-start-1">恢复成功</span>
+          <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="col-start-1 row-start-1">默认值已载入</span>
         {:else}
           <span in:fly={{ y: 20, duration: 300, easing: cubicOut }} out:fly={{ y: -20, duration: 200 }} class="col-start-1 row-start-1">恢复默认</span>
         {/if}
       </div>
     </button>
   </div>
+  </fieldset>
 </div>

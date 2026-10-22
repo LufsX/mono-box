@@ -35,6 +35,8 @@
   let changelogError = $state("");
   let changelogText = $state("");
   let changelogOpen = $state(false);
+  let updateRequest = 0;
+  let changelogRequest = 0;
   const modalHistory = useModalHistory("about-changelog", () => {
     changelogOpen = false;
   });
@@ -75,6 +77,8 @@
   });
 
   function saveUpdateSource(value: string) {
+    updateRequest += 1;
+    changelogRequest += 1;
     updateSource = value === "nightly" ? "nightly" : value === "release" ? "release" : "current";
     updateStatus = "idle";
     updateInfo = null;
@@ -115,6 +119,7 @@
   }
 
   async function loadChangelog(info: UpdateInfo) {
+    const request = ++changelogRequest;
     const source = info.changelog?.trim() || "";
     changelogLoading = false;
     changelogError = "";
@@ -137,11 +142,14 @@
         throw new Error(`请求失败: HTTP ${response.status}`);
       }
 
-      changelogText = (await response.text()).trim();
+      const text = (await response.text()).trim();
+      if (request !== changelogRequest || updateInfo !== info) return;
+      changelogText = text;
     } catch (e) {
+      if (request !== changelogRequest || updateInfo !== info) return;
       changelogError = e instanceof Error ? e.message : String(e);
     } finally {
-      changelogLoading = false;
+      if (request === changelogRequest) changelogLoading = false;
     }
   }
 
@@ -160,6 +168,7 @@
   }
 
   async function checkUpdate() {
+    const request = ++updateRequest;
     try {
       updateStatus = "checking";
       updateError = "";
@@ -178,10 +187,12 @@
       }
 
       const info = normalizeUpdateInfo(await response.json());
+      if (request !== updateRequest) return;
       updateInfo = info;
       updateStatus = "ok";
       void loadChangelog(info);
     } catch (e) {
+      if (request !== updateRequest) return;
       updateError = e instanceof Error ? e.message : String(e);
       updateStatus = "error";
       changelogLoading = false;

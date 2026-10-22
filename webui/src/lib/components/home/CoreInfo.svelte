@@ -19,10 +19,7 @@
 
   const version = $derived($versionCheck?.ok ? $versionCheck.version : "-");
 
-  onMount(() => {
-    actions.refreshConfigs();
-    actions.refreshVersion();
-  });
+  onMount(() => actions.refreshVersion());
 </script>
 
 <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">

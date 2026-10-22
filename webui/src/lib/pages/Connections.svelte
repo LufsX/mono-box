@@ -19,7 +19,14 @@
   let loading = $state(true);
   let error = $state("");
   let errorReason = $state<"unauthorized" | "unreachable" | "">("");
-  let timer: ReturnType<typeof setInterval>;
+  let hasLoaded = $state(false);
+  let requestBusy = false;
+  let refreshQueued = false;
+  let forceQueuedRefresh = false;
+  let refreshWaiters: Array<() => void> = [];
+  let mounted = false;
+  let retryDelay = 1000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
   let prevTraffic = new Map<string, { upload: number; download: number; timestamp: number }>();
   let connectionsById = new Map<string, EnrichedConnection>();
@@ -28,10 +35,16 @@
 
   let sortMode = $state<SortMode>("default");
   let activeConnectionId = $state<string | null>(null);
+  let activeConnection = $state<EnrichedConnection | null>(null);
   let rawOpen = $state(false);
+  let closingConnectionIds = $state<Set<string>>(new Set());
+  let closingAll = $state(false);
+  let actionError = $state("");
+  let retrying = $state(false);
 
   const modalHistory = useModalHistory("connections", () => {
     activeConnectionId = null;
+    activeConnection = null;
   });
 
   function applySort() {
@@ -62,7 +75,15 @@
     };
   }
 
-  async function fetchConnections() {
+  async function fetchConnections(force = false) {
+    if (requestBusy) {
+      refreshQueued = true;
+      forceQueuedRefresh ||= force;
+      return new Promise<void>((resolve) => refreshWaiters.push(resolve));
+    }
+    clearTimeout(timer);
+    timer = undefined;
+    requestBusy = true;
     try {
       const res = await clashApi.getConnections();
       const now = Date.now();
@@ -126,6 +147,10 @@
         }
       }
 
+      if (activeConnectionId && incomingIds.has(activeConnectionId)) {
+        activeConnection = connectionsById.get(activeConnectionId) ?? activeConnection;
+      }
+
       applySort();
 
       downloadTotal = res.downloadTotal || 0;
@@ -136,52 +161,126 @@
       if (loading) loading = false;
       error = "";
       errorReason = "";
+      hasLoaded = true;
+      retryDelay = 1000;
     } catch (err: any) {
       const classified = classifyConnectionError(err);
       errorReason = classified.reason;
       error = classified.message;
+      if (hasLoaded) error = `刷新连接失败：${classified.message}`;
       if (loading) loading = false;
+      scheduleNextFetch(retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    } finally {
+      requestBusy = false;
+      if (refreshQueued) {
+        refreshQueued = false;
+        const forceRefresh = forceQueuedRefresh;
+        forceQueuedRefresh = false;
+        if (mounted && (forceRefresh || !document.hidden)) void fetchConnections(forceRefresh).finally(resolveRefreshWaiters);
+        else resolveRefreshWaiters();
+      } else if (!error) {
+        scheduleNextFetch(1000);
+      }
     }
+  }
+
+  function resolveRefreshWaiters() {
+    for (const resolve of refreshWaiters.splice(0)) resolve();
+  }
+
+  function scheduleNextFetch(delay: number) {
+    if (!mounted || document.hidden) return;
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = undefined;
+      void fetchConnections();
+    }, delay);
   }
 
   async function closeConnection(id: string, event?: Event) {
     if (event) event.stopPropagation();
+    if (closingAll || closingConnectionIds.has(id)) return;
+    closingConnectionIds = new Set(closingConnectionIds).add(id);
+    actionError = "";
+    clearTimeout(timer);
+    timer = undefined;
     try {
       await clashApi.deleteConnection(id);
       if (activeConnectionId === id) closeDetail();
-      fetchConnections();
+      await fetchConnections(true);
+      if (error) actionError = "连接已断开，但连接列表刷新失败";
     } catch (err: any) {
-      alert("Failed to close connection: " + err.message);
+      actionError = `关闭连接失败：${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      const next = new Set(closingConnectionIds);
+      next.delete(id);
+      closingConnectionIds = next;
     }
   }
 
   async function closeAll() {
+    if (closingAll || closingConnectionIds.size > 0 || connections.length === 0) return;
+    closingAll = true;
+    actionError = "";
+    clearTimeout(timer);
+    timer = undefined;
     try {
       await clashApi.closeAllConnections();
       if (activeConnectionId) closeDetail();
-      fetchConnections();
+      await fetchConnections(true);
+      if (error) actionError = "连接已断开，但连接列表刷新失败";
     } catch (err: any) {
-      alert("Failed to close all connections: " + err.message);
+      actionError = `关闭全部连接失败：${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      closingAll = false;
     }
   }
 
   function openDetail(id: string) {
     if (!activeConnectionId) modalHistory.push();
     activeConnectionId = id;
+    activeConnection = connections.find((connection) => connection.id === id) ?? null;
     rawOpen = false;
   }
 
   function closeDetail() {
     modalHistory.close();
+    activeConnection = null;
+  }
+
+  function retryConnections() {
+    if (retrying || requestBusy) return;
+    retrying = true;
+    clearTimeout(timer);
+    retryDelay = 1000;
+    error = "";
+    if (!hasLoaded) loading = true;
+    void fetchConnections().finally(() => {
+      retrying = false;
+    });
   }
 
   onMount(() => {
-    fetchConnections();
-    timer = setInterval(fetchConnections, 1000);
+    mounted = true;
+    void fetchConnections();
+    const refreshWhenVisible = () => {
+      if (document.hidden) {
+        clearTimeout(timer);
+        timer = undefined;
+      } else {
+        void fetchConnections();
+      }
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      mounted = false;
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   });
 
   onDestroy(() => {
-    if (timer) clearInterval(timer);
+    clearTimeout(timer);
   });
 </script>
 
@@ -217,7 +316,7 @@
         class="inline-flex items-center gap-2 h-8 px-3 py-1.5 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 text-xs font-bold leading-none transition-colors disabled:opacity-60
         rounded-lg"
         onclick={closeAll}
-        disabled={connections.length === 0}
+        disabled={loading || connections.length === 0 || closingAll || closingConnectionIds.size > 0}
         aria-label="全部关闭"
         title="全部关闭"
       >
@@ -229,9 +328,21 @@
 
   {#if loading}
     <div class="py-12 flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm">正在加载连接...</div>
-  {:else if error}
-    <KernelAuthNotice reason={errorReason || "unreachable"} />
+  {:else if error && !hasLoaded}
+    <KernelAuthNotice reason={errorReason || "unreachable"} message={error} onRetry={retryConnections} retrying={retrying} showActions={true} />
   {:else}
+    {#if actionError}
+      <div class="flex items-center justify-between gap-3 px-3 py-2 border border-red-300 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 text-xs rounded-lg" role="status">
+        <span>{actionError}</span>
+        <button class="shrink-0 underline underline-offset-2" onclick={() => (actionError = "")}>关闭</button>
+      </div>
+    {/if}
+    {#if error}
+      <div class="flex items-center justify-between gap-3 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300 text-xs rounded-lg" role="status">
+        <span>{error}</span>
+        <button class="shrink-0 underline underline-offset-2 disabled:opacity-60" onclick={retryConnections} disabled={retrying}>重试</button>
+      </div>
+    {/if}
     <div class="grid grid-cols-2 gap-3">
       <div class="border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/90 p-3 transition-colors rounded-xl">
         <div class="text-xs font-semibold text-slate-400 dark:text-zinc-500 mb-1 flex items-center gap-1.5">
@@ -324,6 +435,8 @@
                 <button
                   class="inline-flex items-center justify-center w-4 h-4 border border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-900/50 transition-colors rounded-lg"
                   onclick={(event) => closeConnection(conn.id, event)}
+                  disabled={closingAll || closingConnectionIds.has(conn.id)}
+                  aria-busy={closingConnectionIds.has(conn.id)}
                   title="关闭连接"
                 >
                   <X size={10} />
@@ -341,8 +454,8 @@
     </div>
   {/if}
 
-  {#if activeConnectionId && connections.find((c) => c.id === activeConnectionId)}
-    {@const activeConn = connections.find((c) => c.id === activeConnectionId)!}
+  {#if activeConnectionId && activeConnection}
+    {@const activeConn = activeConnection}
     <div
       class="fixed inset-0 z-50 bg-slate-950/55 p-3 md:p-6 flex items-center justify-center"
       role="button"
@@ -371,6 +484,11 @@
           </button>
         </div>
         <div class="p-4 overflow-y-auto flex-1 flex flex-col gap-4">
+          {#if !connections.some((connection) => connection.id === activeConn.id)}
+            <div class="border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-300 rounded-lg">
+              此连接已结束，以下为最后一次采样的数据。
+            </div>
+          {/if}
           <div class="flex flex-col gap-2">
             <div class="text-lg font-mono font-bold text-slate-800 dark:text-slate-200 break-all select-text">
               {activeConn.metadata.host || activeConn.metadata.destinationIP}
@@ -465,6 +583,7 @@
             class="flex items-center justify-center gap-2 px-4 py-2 border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 dark:border-rose-900/40 dark:bg-rose-950/30 dark:hover:bg-rose-900/50 dark:text-rose-400 font-medium transition-colors w-full sm:w-auto
             rounded-lg"
             onclick={() => closeConnection(activeConn.id)}
+            disabled={closingAll || closingConnectionIds.has(activeConn.id)}
           >
             <Trash2 size={16} />
             <span>断开此连接</span>
