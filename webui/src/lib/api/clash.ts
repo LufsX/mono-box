@@ -1,5 +1,5 @@
 import type { ConfigPort } from "./config-port";
-import { exec } from "kernelsu";
+import { runCommand } from "../bridge";
 import { loadStoredClashConfig, saveStoredClashConfig } from "./clash-config-storage";
 import { parseBoxConfig } from "./config-parser";
 import { getErrorMessage, classifyConnectionError } from "./error-utils";
@@ -242,7 +242,7 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
         : `/proxies/${encodeURIComponent(candidate)}/delay`;
       const endpoint = `http://127.0.0.1:${config.port}${path}?url=${encodedTestUrl}&timeout=${timeout}`;
       const authOption = config.secret.trim() ? ` -H ${quoteShellArgument(`Authorization: Bearer ${config.secret.trim()}`)}` : "";
-      const response = await exec(`curl -sS --max-time ${commandTimeout}${authOption} ${quoteShellArgument(endpoint)}`);
+      const response = await runCommand(`curl -sS --max-time ${commandTimeout}${authOption} ${quoteShellArgument(endpoint)}`);
 
       if (response.errno !== 0) {
         throw new Error(response.stderr.trim() || `curl exited with code ${response.errno}`);

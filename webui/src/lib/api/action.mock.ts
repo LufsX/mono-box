@@ -1,4 +1,5 @@
 import type { CommandResult, ModuleInfo } from "./clash.types";
+import type { CommandOutputListener } from "../bridge";
 import { parseKeyValueText } from "./config-parser";
 import type { ConfigPort } from "./config-port";
 import { normalizeMihomoConfigName, type MihomoConfigFile } from "./action";
@@ -146,16 +147,15 @@ function assertHttpUrl(url: string): void {
   }
 }
 
-export async function runActionScript(actionCmd: string): Promise<CommandResult> {
+export async function runActionScript(actionCmd: string, onLine?: CommandOutputListener): Promise<CommandResult> {
   await new Promise((resolve) => setTimeout(resolve, 1000));
+  let result: CommandResult;
   if (actionCmd === "logs_size") {
     const lines = mockLogFiles.map((file) => `file\t${file.size}\t${file.path}`);
     const totalBytes = mockLogFiles.reduce((sum, file) => sum + file.size, 0);
     lines.push(`total\t${totalBytes}\t${mockLogFiles.length}`);
-    return ok(lines.join("\n"));
-  }
-
-  if (actionCmd === "clear_logs") {
+    result = ok(lines.join("\n"));
+  } else if (actionCmd === "clear_logs") {
     const activeLogPath = latestMockLogPath();
     let totalBytes = 0;
     let count = 0;
@@ -176,10 +176,17 @@ export async function runActionScript(actionCmd: string): Promise<CommandResult>
     });
 
     lines.push(`cleared\t${totalBytes}\t${count}\t0\t${skipped}`);
-    return ok(lines.join("\n"));
+    result = ok(lines.join("\n"));
+  } else {
+    result = ok(`Mock execute: ${actionCmd}`);
   }
 
-  return ok(`Mock execute: ${actionCmd}`);
+  for (const stream of ["stdout", "stderr"] as const) {
+    if (result[stream]) {
+      for (const line of result[stream].split("\n")) onLine?.(line, stream);
+    }
+  }
+  return result;
 }
 
 export async function getLogSizeReport(): Promise<LogSizeReport> {

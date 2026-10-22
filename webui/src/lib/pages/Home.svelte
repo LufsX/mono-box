@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { onMount } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { flip } from "svelte/animate";
   import { fly } from "svelte/transition";
@@ -50,20 +50,18 @@
     addLog(`> /data/adb/modules/mono_box/action.sh ${actionCmd}`, "cmd");
     addLog("[Executing] Waiting for KernelSU to return results...", "info");
 
-    await tick();
-    await new Promise((resolve) => setTimeout(resolve, 10));
     const startedAt = Date.now();
 
     try {
-      const result = await actionApi.runActionScript(actionCmd);
+      const result = await actionApi.runActionScript(actionCmd, (line, stream) => {
+        addLog(line, stream === "stderr" ? "error" : "info");
+      });
       const elapsedMs = Date.now() - startedAt;
 
       const raw = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
       const isError = result.errno !== 0;
 
-      if (raw) {
-        addLog(`[Action] ${raw}`, isError ? "error" : "info");
-      }
+      addLog(isError ? `[Action] Failed (errno=${result.errno})` : "[Action] Completed", isError ? "error" : "success");
       addLog(`[Info] Execution time: ${elapsedMs} ms`, "info");
 
       return { success: !isError, errno: result.errno, raw };

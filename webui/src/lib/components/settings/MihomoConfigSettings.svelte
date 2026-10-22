@@ -365,11 +365,6 @@
     actionError = "";
   }
 
-  async function yieldBeforeShellCommand() {
-    await tick();
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  }
-
   async function confirmDelete() {
     if (!pendingAction || pendingAction.kind !== "delete" || busyKey) return;
     const target = pendingAction.config;
@@ -397,13 +392,11 @@
       busyKey = restart ? "switch:restart" : "switch:save";
       switchStage = "validating";
       actionError = "";
-      await yieldBeforeShellCommand();
       selected = await actionApi.switchMihomoConfigFile(target.name, target.kind);
       // Selection is committed even if the subsequent restart throws.
       applyConfigPatch(selected);
       if (restart) {
         switchStage = "restarting";
-        await yieldBeforeShellCommand();
         const result = await actionApi.runActionScript("restart");
         if (result.errno !== 0) throw new Error(result.stderr.trim() || result.stdout.trim() || `errno ${result.errno}`);
       }

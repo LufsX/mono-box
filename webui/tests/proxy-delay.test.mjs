@@ -32,7 +32,7 @@ test('real API emits encoded provider healthcheck or direct delay routes', async
   const commands = [];
   globalThis.__proxyTestExec = async (command) => { commands.push(command); return { errno: 0, stdout: '{"delay":42}', stderr: '' }; };
   const apiModule = await load('../src/lib/api/clash.ts', (source) => source
-    .replace('import { exec } from "kernelsu";', 'const exec = (...args) => globalThis.__proxyTestExec(...args);')
+    .replace('import { runCommand } from "../bridge";', 'const runCommand = (...args) => globalThis.__proxyTestExec(...args);')
     .replace(/import \{ loadStoredClashConfig, saveStoredClashConfig \} from .*?;/, 'const loadStoredClashConfig = () => ({ port: 9090, secret: "test" }); const saveStoredClashConfig = () => {};')
     .replace(/import \{ parseBoxConfig \} from .*?;/, 'const parseBoxConfig = () => ({});')
     .replace(/import \{ getErrorMessage, classifyConnectionError \} from .*?;/, 'const getErrorMessage = String; const classifyConnectionError = () => ({});'));

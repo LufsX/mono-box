@@ -1,4 +1,5 @@
-import { exec, enableEdgeToEdge } from "kernelsu";
+import { enableEdgeToEdge } from "kernelsu";
+import { runCommand, type CommandOutputListener } from "../bridge";
 import { parseKeyValueText } from "./config-parser";
 import { buildExecError } from "./error-utils";
 import type { ConfigPort } from "./config-port";
@@ -74,18 +75,9 @@ function fromBase64Utf8(text: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-function normalizeResult(result: { errno: number; stdout?: string; stderr?: string }): CommandResult {
-  return {
-    errno: result.errno,
-    stdout: result.stdout || "",
-    stderr: result.stderr || "",
-  };
-}
-
-export async function runActionScript(actionCmd: string): Promise<CommandResult> {
+export async function runActionScript(actionCmd: string, onLine?: CommandOutputListener): Promise<CommandResult> {
   const command = `su -c '${MODULE_ROOT}/action.sh ${actionCmd}'`;
-  const result = await exec(command, { cwd: MODULE_ROOT });
-  return normalizeResult(result);
+  return runCommand(command, { cwd: MODULE_ROOT, onLine });
 }
 
 function parsePositiveInteger(value: string | undefined): number {
@@ -179,8 +171,7 @@ function buildResolveLogPathScript(encodedPath: string): string[] {
 
 async function runRootShellScript(lines: string[], cwd = MODULE_ROOT): Promise<CommandResult> {
   const command = `su -c '${lines.join("\n")}'`;
-  const result = await exec(command, { cwd });
-  return normalizeResult(result);
+  return runCommand(command, { cwd });
 }
 
 function buildMihomoConfigShellHelpers(): string[] {
@@ -533,8 +524,7 @@ export async function setEdgeToEdge(enabled: boolean): Promise<void> {
 export async function openExternalUrlCommand(url: string): Promise<CommandResult> {
   const safeUrl = url.replace(/"/g, '\\"');
   const command = `am start -a android.intent.action.VIEW -d "${safeUrl}"`;
-  const result = await exec(command, { cwd: "/" });
-  return normalizeResult(result);
+  return runCommand(command, { cwd: "/" });
 }
 
 export async function openExternalUrl(url: string): Promise<void> {
@@ -546,8 +536,7 @@ export async function openExternalUrl(url: string): Promise<void> {
 
 export async function readModulePropRaw(): Promise<CommandResult> {
   const command = `su -c 'cat ${MODULE_PROP_PATH}'`;
-  const result = await exec(command, { cwd: MODULE_ROOT });
-  return normalizeResult(result);
+  return runCommand(command, { cwd: MODULE_ROOT });
 }
 
 export async function getModuleInfo(): Promise<ModuleInfo> {
@@ -570,8 +559,7 @@ export async function getModuleInfo(): Promise<ModuleInfo> {
 
 async function readBoxConfigRaw(): Promise<CommandResult> {
   const command = `su -c 'cat ${BOX_CONFIG_PATH}'`;
-  const result = await exec(command, { cwd: BOX_ROOT });
-  return normalizeResult(result);
+  return runCommand(command, { cwd: BOX_ROOT });
 }
 
 async function writeBoxConfigRaw(content: string): Promise<CommandResult> {
@@ -583,8 +571,7 @@ async function writeBoxConfigRaw(content: string): Promise<CommandResult> {
   }
 
   const command = `su -c 'if command -v base64 >/dev/null 2>&1; then base64 -d; else busybox base64 -d; fi > ${BOX_CONFIG_PATH} <<"${marker}"\n${base64Content}\n${marker}'`;
-  const result = await exec(command, { cwd: BOX_ROOT });
-  return normalizeResult(result);
+  return runCommand(command, { cwd: BOX_ROOT });
 }
 
 export async function readBoxConfig(): Promise<string> {
