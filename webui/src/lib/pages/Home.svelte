@@ -123,7 +123,11 @@
   async function handleRefresh() {
     addLog("[Core] Refreshing status...", "info");
     await checkCoreStatus();
-    addLog("[Core] Status refreshed", "success");
+    if (coreStatus?.ok) {
+      addLog("[Core] Status refreshed", "success");
+    } else {
+      addLog(`[Core] ${coreStatus?.message || "Status check failed"}`, "error");
+    }
   }
 
   async function runAction(action: string) {
@@ -131,12 +135,7 @@
     if (!result.success) return;
 
     if (["start", "restart", "stop"].includes(action)) {
-      const attempts = action === "stop" ? 1 : 5;
-      for (let attempt = 0; attempt < attempts; attempt += 1) {
-        await checkCoreStatus();
-        if (action === "stop" || coreStatus?.ok || attempt === attempts - 1) break;
-        await new Promise((resolve) => setTimeout(resolve, 500));
-      }
+      await checkCoreStatus();
     }
   }
 

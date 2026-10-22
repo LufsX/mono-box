@@ -522,8 +522,8 @@ export async function setEdgeToEdge(enabled: boolean): Promise<void> {
 }
 
 export async function openExternalUrlCommand(url: string): Promise<CommandResult> {
-  const safeUrl = url.replace(/"/g, '\\"');
-  const command = `am start -a android.intent.action.VIEW -d "${safeUrl}"`;
+  const shellUrl = `'${url.replace(/'/g, `'\\''`)}'`;
+  const command = `am start -a android.intent.action.VIEW -d ${shellUrl}`;
   return runCommand(command, { cwd: "/" });
 }
 

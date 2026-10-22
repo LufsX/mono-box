@@ -89,8 +89,8 @@
   }
 </script>
 
-<div class="p-4 space-y-4">
-  <fieldset disabled={saving} class="m-0 min-w-0 border-0 p-0" oninput={onedit} onchange={onedit}>
+<div class="p-4">
+  <fieldset disabled={saving} class="m-0 min-w-0 space-y-4 border-0 p-0" oninput={onedit} onchange={onedit}>
   {#if homeLayoutError}
     <div transition:fly={{ y: -8, duration: 220, easing: cubicOut }} class="px-3 py-2 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
       {homeLayoutError}

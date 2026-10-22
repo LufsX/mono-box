@@ -147,8 +147,13 @@
         }
       }
 
-      if (activeConnectionId && incomingIds.has(activeConnectionId)) {
-        activeConnection = connectionsById.get(activeConnectionId) ?? activeConnection;
+      if (activeConnectionId) {
+        const refreshedActiveConnection = connectionsById.get(activeConnectionId);
+        if (refreshedActiveConnection) {
+          activeConnection = refreshedActiveConnection;
+        } else {
+          closeDetail();
+        }
       }
 
       applySort();

@@ -458,12 +458,22 @@
       }
     })();
     let polling = false;
-    const timer = setInterval(async () => {
+    const refreshInBackground = async () => {
       if (polling || loading || document.hidden || Object.keys(testingOwners).length || updatingProvider || selectingGroup || switchingMode) return;
       polling = true;
       try { await loadData(true); } finally { polling = false; }
-    }, 30000);
-    return () => { disposed = true; loadSequence++; clearInterval(timer); };
+    };
+    const timer = setInterval(() => void refreshInBackground(), 30000);
+    const refreshWhenVisible = () => {
+      if (!document.hidden) void refreshInBackground();
+    };
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      disposed = true;
+      loadSequence++;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
   });
 
 </script>

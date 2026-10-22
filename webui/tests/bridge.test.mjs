@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -147,4 +147,21 @@ test('box.config writes preserve normalized UTF-8 content through the nested her
   finish(calls[0]);
   await saved;
   assert.equal(readFileSync(path, 'utf8'), 'clash_api_port=9090\n\n# \u4e13\u7ebf\n');
+});
+
+test('external URLs remain a single shell argument without command substitution', async (t) => {
+  const calls = captureSpawns(t);
+  const directory = mkdtempSync(join(tmpdir(), 'mono-box-url-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const sentinel = join(directory, 'injected');
+  const url = `https://example.com/$(touch ${sentinel})`;
+  const opened = action.openExternalUrlCommand(url);
+  const shell = `am() { printf '%s' "$5"; }; ${calls[0].command} `;
+  const output = spawnSync('/bin/sh', ['-c', shell], { encoding: 'utf8', timeout: 5000 });
+
+  assert.equal(output.status, 0, output.stderr);
+  assert.equal(output.stdout, url);
+  assert.equal(existsSync(sentinel), false);
+  finish(calls[0]);
+  await opened;
 });

@@ -15,7 +15,6 @@
   type ConfigViewState = "loading" | "error" | "empty" | "no-results" | "list";
 
   const MAX_LOCAL_CONFIG_BYTES = 5 * 1024 * 1024;
-  const MODAL_EXIT_MS = 160;
 
   let configs = $state<MihomoConfigFile[]>([]);
   let loaded = $state(false);
@@ -47,7 +46,6 @@
   let updatingName = $state("");
 
   let modalExitWork: (() => void) | null = null;
-  let modalExitTimer: ReturnType<typeof setTimeout> | undefined;
 
   const busy = $derived(loading || !!busyKey);
   const remoteConfigs = $derived(configs.filter((config) => !!config.sourceUrl));
@@ -74,7 +72,6 @@
 
   onDestroy(() => {
     if (bannerResetTimer) clearTimeout(bannerResetTimer);
-    if (modalExitTimer) clearTimeout(modalExitTimer);
   });
 
   function isCoarsePointer(): boolean {
@@ -90,11 +87,11 @@
     const run = modalExitWork;
     if (!run) return;
     modalExitWork = null;
-    if (modalExitTimer) clearTimeout(modalExitTimer);
-    modalExitTimer = setTimeout(() => {
-      modalExitTimer = undefined;
-      run();
-    }, MODAL_EXIT_MS);
+    run();
+  }
+
+  function cancelModalExitWork() {
+    modalExitWork = null;
   }
 
   function clearErrorBanner() {
@@ -213,7 +210,6 @@
   }
 
   function resetAddModal() {
-    flushModalExitWork();
     addModalOpen = false;
     addMode = "url";
     modalError = "";
@@ -352,6 +348,7 @@
 
   function openActionModal(kind: PendingAction["kind"], config: MihomoConfigFile) {
     if (busy || pendingAction) return;
+    cancelModalExitWork();
     actionError = "";
     pendingAction = { kind, config };
     actionModalHistory.push();
@@ -363,7 +360,6 @@
   }
 
   function resetActionModal() {
-    flushModalExitWork();
     pendingAction = null;
     actionError = "";
   }
@@ -650,6 +646,8 @@
       aria-labelledby="mihomo-config-add-title"
       in:fly={{ y: 10, duration: 200, easing: cubicOut }}
       out:fade={{ duration: 120 }}
+      onoutroend={flushModalExitWork}
+      onintrostart={cancelModalExitWork}
     >
       <div class="flex shrink-0 items-center justify-between gap-3 border-b border-slate-300 px-4 py-3 dark:border-zinc-700">
         <div class="flex min-w-0 items-center gap-2">
@@ -843,6 +841,8 @@
       aria-labelledby="mihomo-action-title"
       in:fly={{ y: 10, duration: 180, easing: cubicOut }}
       out:fade={{ duration: 110 }}
+      onoutroend={flushModalExitWork}
+      onintrostart={cancelModalExitWork}
     >
       <div class="flex items-start gap-3 p-4">
         <div
