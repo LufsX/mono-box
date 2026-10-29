@@ -13,7 +13,8 @@ func TestRepositoryConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.BinName != "mihomo" || c.APIPort != 9090 || c.ToggleModeCycle != "rule,global,direct" {
+	if c.BinName != "mihomo" || c.APIPort != 9090 || c.ToggleModeCycle != "rule,global,direct" ||
+		c.AutoRecovery || c.AutoUpdateConfig || c.ConfigUpdateIntervalHours != 24 || !c.ConfigUpdateWiFiOnly {
 		t.Fatalf("%+v", c)
 	}
 }

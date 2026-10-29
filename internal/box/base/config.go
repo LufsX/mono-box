@@ -26,12 +26,18 @@ type Config struct {
 	TargetCellular  string
 	TargetWiFi      string
 	TargetWiFiList  string
+
+	AutoRecovery              bool
+	AutoUpdateConfig          bool
+	ConfigUpdateIntervalHours int
+	ConfigUpdateWiFiOnly      bool
 }
 
 func DefaultConfig() Config {
 	return Config{
 		BinName: "mihomo", CoreUserGroup: "root:net_admin", APIPort: 9090,
 		ToggleAction: "service", ToggleTunTarget: "toggle", ToggleModeCycle: "rule,global,direct", CtrMode: "disable",
+		ConfigUpdateIntervalHours: 24, ConfigUpdateWiFiOnly: true,
 	}
 }
 
@@ -53,6 +59,16 @@ func LoadConfig(path string) (Config, error) {
 
 // ParseConfig reads literal shell assignments without executing user content.
 func ParseConfig(content string) (Config, error) {
+	return parseConfig(content, false)
+}
+
+// ParseAutomationConfig reads only automation assignments. Invalid statements and
+// values for other fields are ignored so automation can be disabled independently.
+func ParseAutomationConfig(content string) (Config, error) {
+	return parseConfig(content, true)
+}
+
+func parseConfig(content string, automationOnly bool) (Config, error) {
 	if len(content) > ConfigSizeLimit {
 		return Config{}, fmt.Errorf("box.config exceeds %d bytes", ConfigSizeLimit)
 	}
@@ -66,15 +82,40 @@ func ParseConfig(content string) (Config, error) {
 		}
 		line = strings.TrimPrefix(line, "export ")
 		key, raw, ok := strings.Cut(line, "=")
+		key = strings.TrimSpace(key)
+		if automationOnly && !isAutomationKey(key) {
+			// A malformed assignment to an automation field must still fail.
+			if fields := strings.Fields(key); len(fields) == 0 || !isAutomationKey(fields[0]) {
+				continue
+			}
+			return c, fmt.Errorf("box.config line %d: expected literal assignment", n)
+		}
 		if !ok {
 			return c, fmt.Errorf("box.config line %d: expected literal assignment", n)
 		}
-		key = strings.TrimSpace(key)
 		value, err := ParseLiteral(strings.TrimSpace(raw))
 		if err != nil {
 			return c, fmt.Errorf("box.config line %d: %w", n, err)
 		}
 		switch key {
+		case "auto_recovery", "auto_update_config", "config_update_wifi_only":
+			if value != "true" && value != "false" {
+				return c, fmt.Errorf("box.config line %d: %s must be true or false", n, key)
+			}
+			enabled := value == "true"
+			switch key {
+			case "auto_recovery":
+				c.AutoRecovery = enabled
+			case "auto_update_config":
+				c.AutoUpdateConfig = enabled
+			case "config_update_wifi_only":
+				c.ConfigUpdateWiFiOnly = enabled
+			}
+		case "config_update_interval_hours":
+			c.ConfigUpdateIntervalHours, err = strconv.Atoi(value)
+			if err != nil || c.ConfigUpdateIntervalHours < 1 || c.ConfigUpdateIntervalHours > 168 {
+				return c, fmt.Errorf("box.config line %d: config_update_interval_hours must be 1..168", n)
+			}
 		case "bin_name":
 			c.BinName = value
 		case "CORE_USER_GROUP":
@@ -111,6 +152,9 @@ func ParseConfig(content string) (Config, error) {
 	if err := scanner.Err(); err != nil {
 		return c, err
 	}
+	if automationOnly {
+		return c, nil
+	}
 	if c.BinName == "" {
 		c.BinName = "mihomo"
 	}
@@ -138,6 +182,14 @@ func ParseConfig(content string) (Config, error) {
 		c.CtrMode = "disable"
 	}
 	return c, nil
+}
+
+func isAutomationKey(key string) bool {
+	switch key {
+	case "auto_recovery", "auto_update_config", "config_update_interval_hours", "config_update_wifi_only":
+		return true
+	}
+	return false
 }
 
 func ParseLiteral(raw string) (string, error) {
