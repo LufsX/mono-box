@@ -5,8 +5,10 @@ import (
 	"io"
 	"time"
 
+	"github.com/LufsX/mono-box/internal/box/automation"
 	"github.com/LufsX/mono-box/internal/box/base"
 	"github.com/LufsX/mono-box/internal/box/control"
+	"github.com/LufsX/mono-box/internal/box/diagnostic"
 	"github.com/LufsX/mono-box/internal/box/download"
 	"github.com/LufsX/mono-box/internal/box/service"
 	"github.com/LufsX/mono-box/internal/box/storage"
@@ -22,6 +24,14 @@ type Runtime struct {
 func New(root, moduleDir string, out, errOut io.Writer) (*Runtime, error) {
 	runtime, err := base.New(root, moduleDir, out, errOut)
 	return &Runtime{Runtime: control.New(runtime)}, err
+}
+
+func (r *Runtime) Diagnostics() error {
+	return diagnostic.New(r.Runtime.Runtime).Run()
+}
+
+func (r *Runtime) Automation(args []string) error {
+	return automation.New(r.Runtime.Runtime).Command(args)
 }
 
 func (r *Runtime) Service(action string) error {

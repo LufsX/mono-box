@@ -60,9 +60,9 @@ func run(args []string, out, errOut io.Writer) int {
 		errOut = io.MultiWriter(errOut, log)
 	}
 	r, err := box.New(absRoot, *module, out, errOut)
-	// Reading or repairing settings and stopping the watcher remain available
+	// Diagnostics, settings repairs and stopping the watcher remain available
 	// when a manually edited configuration contains an invalid value.
-	if err == nil || args[0] == "config" || args[0] == "module" || args[0] == "watch-stop" || args[0] == "choose-volume" {
+	if err == nil || args[0] == "config" || args[0] == "module" || args[0] == "watch-stop" || args[0] == "choose-volume" || args[0] == "diagnostics" || args[0] == "automation" {
 		err = dispatch(r, args)
 	}
 	if errors.Is(err, box.ErrVolumeTimeout) {
@@ -97,6 +97,13 @@ func dispatch(r *box.Runtime, args []string) error {
 		default:
 			return r.Service(args[1])
 		}
+	case "diagnostics":
+		if len(args) != 1 {
+			return fmt.Errorf("diagnostics takes no arguments")
+		}
+		return r.Diagnostics()
+	case "automation":
+		return r.Automation(args[1:])
 	case "controller":
 		return r.Controller(args[1:])
 	case "watch":
@@ -208,6 +215,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "Commands: action [toggle|start|stop|restart|status|logs_size|clear_logs|switch_mode MODE|switch_tun BOOL|get_configs|upgrade_core]")
 	fmt.Fprintln(w, "          service <start|stop|restart|status|logs_size|clear_logs>")
 	fmt.Fprintln(w, "          controller [boot|EVENT DIR FILE], watch, watch-stop")
+	fmt.Fprintln(w, "          diagnostics, automation <get|set BASE64_JSON>")
 	fmt.Fprintln(w, "          config <read|write BASE64|patch BASE64_JSON>, module info")
 	fmt.Fprintln(w, "          profiles <list|import NAME CONTENT|download URL NAME|update NAME|switch NAME KIND|delete NAME>")
 	fmt.Fprintln(w, "          logs <read|open> BASE64_PATH, download-core KIND OVERWRITE PROXY ABI")
