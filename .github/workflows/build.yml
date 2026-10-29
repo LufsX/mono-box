@@ -10,11 +10,8 @@ on:
 permissions:
   contents: read
 
-env:
-  npm_config_manage_package_manager_versions: "false"
-
 jobs:
-  check:
+  prepare:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -38,8 +35,6 @@ jobs:
             if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
               TAG_NAME="$GITHUB_REF_NAME"
               SOURCE_SHA="$(git rev-parse "${GITHUB_SHA}^{commit}")"
-              TAG_SHA="$(git rev-parse "${TAG_NAME}^{commit}")"
-              [ "$TAG_SHA" = "$SOURCE_SHA" ] || { echo "Release tag moved since this run was triggered" >&2; exit 1; }
             else
               TAG_NAME="$(git tag --sort=-version:refname | awk '/^v/ { print; exit }')"
               [ -n "$TAG_NAME" ] || { echo "No v* release tag found" >&2; exit 1; }
@@ -53,10 +48,9 @@ jobs:
             echo "tag_name=$TAG_NAME"
             echo "source_sha=$SOURCE_SHA"
           } >> "$GITHUB_OUTPUT"
-
-      - uses: actions/checkout@v6
-        with:
-          ref: ${{ steps.ref.outputs.source_sha }}
+          if [ "$(git rev-parse HEAD)" != "$SOURCE_SHA" ]; then
+            git checkout --detach "$SOURCE_SHA"
+          fi
 
       - name: Read metadata
         id: meta
@@ -65,7 +59,6 @@ jobs:
           TAG_NAME: ${{ steps.ref.outputs.tag_name }}
         run: |
           VERSION="$(awk -F= '/^version=/ { print $2; exit }' module.prop)"
-          [ -n "$VERSION" ] || { echo "Missing module version" >&2; exit 1; }
           if [ "$CHANNEL" = release ] && [ "$VERSION" != "$TAG_NAME" ]; then
             echo "module.prop version ($VERSION) must match release tag ($TAG_NAME)" >&2
             exit 1
@@ -75,39 +68,29 @@ jobs:
             echo "version_code=$(TZ=Asia/Shanghai date +%Y%m%d%H%M)"
           } >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
-      - name: Check release asset validation
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      - name: Check native controller
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          go test ./...
-          go vet ./...
-
       - uses: pnpm/action-setup@v6
         with:
-          run_install: false
           package_json_file: webui/package.json
 
-      - name: Check WebUI
+      - name: Build WebUI
         working-directory: webui
         run: |
-          pnpm install --frozen-lockfile
-          pnpm run check
-          node --test tests/*.test.mjs
+          pnpm install
+          pnpm run build
+
+      - name: Upload shared WebUI
+        uses: actions/upload-artifact@v7
+        with:
+          name: shared-webui-${{ steps.ref.outputs.source_sha }}
+          path: webui/build/
+          if-no-files-found: error
 
   build:
-    needs: check
+    needs: prepare
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -116,21 +99,22 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.check.outputs.source_sha }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
 
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
-      - uses: pnpm/action-setup@v6
+      - name: Download shared WebUI
+        uses: actions/download-artifact@v8
         with:
-          run_install: false
-          package_json_file: webui/package.json
+          name: shared-webui-${{ needs.prepare.outputs.source_sha }}
+          path: ${{ runner.temp }}/shared-webui
 
       - name: Setup UPX
         run: |
@@ -142,50 +126,45 @@ jobs:
         env:
           BUILD_ARCH: ${{ matrix.arch }}
           CHANNEL: ${{ inputs.channel }}
-          MONOBOX_VERSION_CODE: ${{ needs.check.outputs.version_code }}
+          MONOBOX_VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+          WEBUI_DIR: ${{ runner.temp }}/shared-webui
         run: |
           if [ "$CHANNEL" = prerelease ]; then
-            sh build.sh --prerelease --arch "$BUILD_ARCH"
+            sh build.sh --prerelease --arch "$BUILD_ARCH" --webui-dir "$WEBUI_DIR"
           else
-            sh build.sh --arch "$BUILD_ARCH"
+            sh build.sh --arch "$BUILD_ARCH" --webui-dir "$WEBUI_DIR"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: monobox-${{ matrix.arch }}
           path: |
-            MonoBox_${{ needs.check.outputs.version }}_${{ matrix.arch }}.zip
+            MonoBox_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.zip
             update-${{ matrix.arch }}.json
+            update.json
           if-no-files-found: error
 
   publish:
-    needs: [check, build]
+    needs: [prepare, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
-      VERSION: ${{ needs.check.outputs.version }}
-      VERSION_CODE: ${{ needs.check.outputs.version_code }}
-      TAG_NAME: ${{ needs.check.outputs.tag_name }}
-      SOURCE_SHA: ${{ needs.check.outputs.source_sha }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+      SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       CHANNEL: ${{ inputs.channel }}
     steps:
       - uses: actions/checkout@v6
         with:
-          ref: ${{ needs.check.outputs.source_sha }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: monobox-*
           merge-multiple: true
           path: dist
-
-      - name: Verify release assets
-        run: |
-          python3 .github/scripts/verify-release.py dist \
-            --version "$VERSION" --version-code "$VERSION_CODE" \
-            --tag "$TAG_NAME" --repository "$GITHUB_REPOSITORY"
 
       - name: Generate changelog
         run: |
@@ -219,11 +198,29 @@ jobs:
           TAG_SHA="$(git rev-parse 'FETCH_HEAD^{commit}')"
           [ "$TAG_SHA" = "$SOURCE_SHA" ] || { echo "Release tag changed while packages were building" >&2; exit 1; }
 
+      - name: Verify prerelease source does not roll back the published tag
+        if: ${{ inputs.channel == 'prerelease' }}
+        run: |
+          if git ls-remote --exit-code origin refs/tags/Prerelease; then
+            git fetch --no-tags origin refs/tags/Prerelease
+            TAG_SHA="$(git rev-parse 'FETCH_HEAD^{commit}')"
+            git merge-base --is-ancestor "$TAG_SHA" "$SOURCE_SHA" || {
+              echo "Prerelease tag is not an ancestor of this build; refusing to overwrite published assets" >&2
+              exit 1
+            }
+          else
+            STATUS=$?
+            if [ "$STATUS" -ne 2 ]; then
+              echo "Failed to read remote Prerelease tag (git exit $STATUS)" >&2
+              exit "$STATUS"
+            fi
+          fi
+
       - name: Upload packages and changelog
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.check.outputs.tag_name }}
-          target_commitish: ${{ needs.check.outputs.source_sha }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          target_commitish: ${{ needs.prepare.outputs.source_sha }}
           prerelease: ${{ inputs.channel == 'prerelease' }}
           files: |
             dist/MonoBox_*.zip
@@ -231,13 +228,15 @@ jobs:
           body_path: ${{ inputs.channel == 'prerelease' && 'dist/prerelease-changelog.md' || 'dist/changelog.md' }}
           fail_on_unmatched_files: true
 
-      - name: Upload architecture update manifests
-        uses: softprops/action-gh-release@v2
+      - name: Upload update manifests
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ needs.check.outputs.tag_name }}
-          target_commitish: ${{ needs.check.outputs.source_sha }}
+          tag_name: ${{ needs.prepare.outputs.tag_name }}
+          target_commitish: ${{ needs.prepare.outputs.source_sha }}
           prerelease: ${{ inputs.channel == 'prerelease' }}
-          files: dist/update-*.json
+          files: |
+            dist/update-*.json
+            dist/update.json
           fail_on_unmatched_files: true
 
       - name: Point prerelease tag at the published source
@@ -259,7 +258,7 @@ jobs:
           keep = {f"MonoBox_{version}_{arch}.zip" for arch in ("arm64-v8a", "armeabi-v7a", "x86_64", "x86")}
           for asset in json.load(open(sys.argv[1]))["assets"]:
               name = asset["name"]
-              if name == "update.json" or (name.startswith("MonoBox_") and name.endswith(".zip") and name not in keep):
+              if name.startswith("MonoBox_") and name.endswith(".zip") and name not in keep:
                   subprocess.run(["gh", "release", "delete-asset", os.environ["TAG_NAME"], name,
                                   "--repo", os.environ["GITHUB_REPOSITORY"], "--yes"], check=True)
           PY

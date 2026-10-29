@@ -73,7 +73,6 @@ done
 mv -f "$native_source" "$MODPATH/bin/monobox" &&
     chmod 0700 "$MODPATH/bin/monobox" ||
     abort "Error: Native controller installation failed"
-rm -f "$MODPATH"/bin/monobox-*
 rm -f /data/adb/box/bin/monobox /data/adb/box/bin/.monobox.new
 
 for script in box.service box.controller; do

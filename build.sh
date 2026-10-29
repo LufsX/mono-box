@@ -4,15 +4,16 @@ set -eu
 cd "$(dirname "$0")"
 PROJECT_DIR=$(pwd)
 usage() {
-    echo "Usage: sh build.sh [--prerelease] [--arch ARCH[,ARCH...]]"
+    echo "Usage: sh build.sh [--prerelease] [--arch ARCH[,ARCH...]] [--webui-dir DIR]"
+    echo "--webui-dir DIR reuses a precompiled WebUI without pnpm; relative paths use the project root."
     echo "Architectures: arm64 (default), arm, amd64, 386, all"
     echo "Android ABI names arm64-v8a, armeabi-v7a, x86_64 and x86 are also accepted."
     echo "Each ABI produces its own ZIP and update manifest."
     echo "MONOBOX_VERSION_CODE overrides the Asia/Shanghai timestamp (positive JS-safe integer)."
-    echo "GITHUB_OUTPUT exports version_code, zip_name and update_name for the last target."
 }
 
 PRERELEASE=0
+WEBUI_DIR=
 ARCH_LIST=
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -26,6 +27,16 @@ while [ "$#" -gt 0 ]; do
             value=${1#--arch=}
             [ -n "$value" ] || { echo "--arch requires a value" >&2; exit 1; }
             ARCH_LIST="${ARCH_LIST:+$ARCH_LIST,}$value"
+            ;;
+        --webui-dir)
+            [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "--webui-dir requires a value" >&2; exit 1; }
+            case "$2" in --*) echo "--webui-dir requires a value" >&2; exit 1 ;; esac
+            WEBUI_DIR=$2
+            shift
+            ;;
+        --webui-dir=*)
+            WEBUI_DIR=${1#--webui-dir=}
+            [ -n "$WEBUI_DIR" ] || { echo "--webui-dir requires a value" >&2; exit 1; }
             ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -57,9 +68,16 @@ for name in $(printf '%s' "$ARCH_LIST" | tr ',' ' '); do
 done
 [ -n "$TARGETS" ] || { echo "--arch requires at least one architecture" >&2; exit 1; }
 
-command -v go >/dev/null 2>&1 || { echo "Go 1.24 or newer is required" >&2; exit 1; }
-command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required" >&2; exit 1; }
 command -v node >/dev/null 2>&1 || { echo "Node.js is required to generate update manifests" >&2; exit 1; }
+if [ -n "$WEBUI_DIR" ]; then
+    [ -d "$WEBUI_DIR" ] && [ -s "$WEBUI_DIR/index.html" ] && [ -d "$WEBUI_DIR/_app" ] || {
+        echo "Invalid precompiled WebUI: $WEBUI_DIR" >&2
+        exit 1
+    }
+else
+    command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required" >&2; exit 1; }
+fi
+command -v go >/dev/null 2>&1 || { echo "Go 1.24 or newer is required" >&2; exit 1; }
 command -v upx >/dev/null 2>&1 || { echo "UPX is required to compress the native controller" >&2; exit 1; }
 
 VERSION=$(awk -F= '/^version=/{print $2; exit}' module.prop)
@@ -90,12 +108,15 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
-echo "[*] Building WebUI..."
-if [ ! -d webui/node_modules ]; then
-    pnpm --dir webui install --frozen-lockfile
+if [ -n "$WEBUI_DIR" ]; then
+    echo "[*] Reusing precompiled WebUI: $WEBUI_DIR"
+else
+    echo "[*] Building WebUI..."
+    pnpm --dir webui install
+    pnpm --dir webui run build
+    WEBUI_DIR=webui/build
 fi
-pnpm --dir webui run build
-cp -R webui/build "$STAGE/webroot"
+cp -R "$WEBUI_DIR/." "$STAGE/webroot"
 cp -R META-INF "$STAGE/META-INF"
 cp action.sh service.sh customize.sh uninstall.sh README.md README_zh.md icon.png "$STAGE/"
 mkdir -p "$STAGE/box/scripts" "$STAGE/bin" "$STAGE/box/mihomo"
@@ -110,22 +131,21 @@ for target in $TARGETS; do
     rm -rf "$STAGE/bin"
     mkdir -p "$STAGE/bin"
     echo "[*] Building native controller for $abi..."
-    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" GOARM=7 \
-        go build -trimpath -tags netgo,osusergo -ldflags='-s -w -buildid=' \
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" \
+        go build -trimpath -ldflags='-s' \
         -o "$STAGE/bin/monobox-$abi" ./cmd/monobox
     echo "[*] Compressing native controller for $abi with UPX..."
-    upx --best --lzma --no-progress "$STAGE/bin/monobox-$abi"
-    upx -t "$STAGE/bin/monobox-$abi"
+    upx --lzma "$STAGE/bin/monobox-$abi"
 
     ZIP_NAME="MonoBox_${VERSION}_${abi}.zip"
     UPDATE_NAME="update-${abi}.json"
-    awk '!/^versionCode=/ && !/^updateJson=/' module.prop > "$STAGE/module.prop"
-    printf 'versionCode=%s\nupdateJson=%s\n' "$VERSION_CODE" "$UPDATE_BASE/$UPDATE_NAME" >> "$STAGE/module.prop"
+    awk '!/^versionCode=/ && !/^updateJson=/ && !/^moduleAbi=/' module.prop > "$STAGE/module.prop"
+    printf 'versionCode=%s\nupdateJson=%s\nmoduleAbi=%s\n' "$VERSION_CODE" "$UPDATE_BASE/$UPDATE_NAME" "$abi" >> "$STAGE/module.prop"
 
     echo "[*] Creating module: $ZIP_NAME..."
     (
         cd "$STAGE"
-        zip -qr -X "$STAGE/module.zip" . -x module.zip
+        zip -qr -X "$STAGE/module.zip" .
     )
     mv -f "$STAGE/module.zip" "$PROJECT_DIR/$ZIP_NAME"
     node - "$VERSION" "$VERSION_CODE" "$RELEASES_URL/download/$RELEASE_TAG/$ZIP_NAME" "$CHANGELOG_URL" > "$PROJECT_DIR/$UPDATE_NAME" <<'NODE'
@@ -137,10 +157,8 @@ process.stdout.write(JSON.stringify({
     changelog,
 }, null, 2) + "\n");
 NODE
+    if [ "$abi" = arm64-v8a ]; then
+        cp "$PROJECT_DIR/$UPDATE_NAME" "$PROJECT_DIR/update.json"
+    fi
     echo "[+] Done: $ZIP_NAME, $UPDATE_NAME"
 done
-
-if [ -n "${GITHUB_OUTPUT:-}" ]; then
-    printf 'version_code=%s\nzip_name=%s\nupdate_name=%s\n' \
-        "$VERSION_CODE" "$ZIP_NAME" "$UPDATE_NAME" >> "$GITHUB_OUTPUT"
-fi

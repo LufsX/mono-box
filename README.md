@@ -68,7 +68,7 @@ If you place one manually, put executable `mihomo` into:
 
 ## Runtime Structure
 
-The Go controller `monobox` resides in the module directory and is replaced with module updates; `/data/adb/box/` holds the core and runtime data. It manages services, network policies, configuration profiles, downloads and logs. Source builds require Go 1.24 or newer, Node.js, pnpm and UPX. The default build produces an arm64 package; `--arch arm64,arm,amd64,386` selects architectures, and `--arch all` produces four separate packages. Each package contains one UPX-compressed native controller and uses its own `update-<ABI>.json`. Release and prerelease workflows build all four packages.
+The Go controller `monobox` resides in the module directory and is replaced with module updates; `/data/adb/box/` holds the core and runtime data. It manages services, network policies, configuration profiles, downloads and logs. Source builds require Go 1.24 or newer, Node.js, pnpm and UPX. The default build produces an arm64 package; `--arch arm64,arm,amd64,386` selects architectures, and `--arch all` produces four separate packages. Each package contains one UPX-compressed native controller and uses its own `update-<ABI>.json`. Release and prerelease workflows build WebUI once and share it across four parallel native builds from the same source commit. `--webui-dir DIR` reuses a precompiled WebUI without pnpm; relative paths use the project root. For compatibility, `update.json` is an exact copy of `update-arm64-v8a.json` and points to the arm64 package.
 
 Main paths:
 

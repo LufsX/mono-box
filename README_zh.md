@@ -66,7 +66,7 @@ Mono Box 提供一个 WEB UI 管理面板，功能包括：
 
 ## 运行结构
 
-Go 程序 `monobox` 放在模块目录，随模块更新替换；`/data/adb/box/` 保存核心和运行数据。该程序负责服务、网络策略、配置档、下载和日志管理。从源码构建需要 Go 1.24 或更高版本、Node.js、pnpm 和 UPX。默认构建 arm64 包；`--arch arm64,arm,amd64,386` 可指定架构，`--arch all` 生成四个独立安装包。每个包仅包含一个经 UPX 压缩的原生程序，并使用各自的 `update-<ABI>.json`。正式版和预发布 workflow 均构建全部四个包。
+Go 程序 `monobox` 放在模块目录，随模块更新替换；`/data/adb/box/` 保存核心和运行数据。该程序负责服务、网络策略、配置档、下载和日志管理。从源码构建需要 Go 1.24 或更高版本、Node.js、pnpm 和 UPX。默认构建 arm64 包；`--arch arm64,arm,amd64,386` 可指定架构，`--arch all` 生成四个独立安装包。每个包仅包含一个经 UPX 压缩的原生程序，并使用各自的 `update-<ABI>.json`。正式版和预发布 workflow 均只构建一次 WebUI，并让同一源码提交的四个原生架构并行构建复用该产物。`--webui-dir DIR` 复用预编译 WebUI，跳过 pnpm；相对路径以项目根目录为基准。为保持兼容，`update.json` 与 `update-arm64-v8a.json` 完全一致，指向 arm64 包。
 
 主要路径：
 
