@@ -258,6 +258,26 @@ func (r *Runtime) Storage(args []string) error {
 		}
 		defer dir.Close()
 		if command == "config write" {
+			lock, err := r.storageConfigLock()
+			if err != nil {
+				return err
+			}
+			defer lock.Close()
+			var previous []byte
+			file, err := dir.open("box.config", syscall.O_RDONLY)
+			if err == nil {
+				// Keep full replacement available for an oversized old config.
+				// ParseAutomationConfig treats the bounded excess as invalid and
+				// conservatively invalidates both feature generations.
+				previous, err = io.ReadAll(io.LimitReader(file, base.ConfigSizeLimit+1))
+				file.Close()
+			}
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			if err := base.InvalidateAutomationConfigGenerations(r.RunDir(), string(previous), string(content)); err != nil {
+				return err
+			}
 			return dir.write("box.config", content)
 		}
 		data, err := dir.read("box.config", base.ConfigSizeLimit)
@@ -516,6 +536,10 @@ func (r *Runtime) commitStoredProfile(s *profileStorage, name, source string, co
 }
 
 func (r *Runtime) validateStoredProfile(s *profileStorage, dir *storageDir, name string) error {
+	return r.validateStoredProfileContext(context.Background(), s, dir, name, false)
+}
+
+func (r *Runtime) validateStoredProfileContext(parent context.Context, s *profileStorage, dir *storageDir, name string, required bool) error {
 	f, err := dir.open(name, syscall.O_RDONLY)
 	if err != nil {
 		return err
@@ -528,22 +552,34 @@ func (r *Runtime) validateStoredProfile(s *profileStorage, dir *storageDir, name
 	binaryDir, err := openStorageDir(filepath.Dir(r.CoreBinary()), false)
 	// Configs can be managed before the optional core download. Existing but
 	// unsafe or broken binaries must still fail rather than bypass validation.
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) && !required {
 		return nil
 	}
 	if err != nil {
+		if required {
+			return ErrScheduledCore
+		}
 		return errors.New("core binary is unavailable")
 	}
 	defer binaryDir.Close()
 	binary, err := binaryDir.open(filepath.Base(r.CoreBinary()), syscall.O_RDONLY)
-	if errors.Is(err, os.ErrNotExist) {
+	if errors.Is(err, os.ErrNotExist) && !required {
 		return nil
 	}
 	if err != nil {
+		if required {
+			return ErrScheduledCore
+		}
 		return errors.New("core binary is unavailable")
 	}
 	defer binary.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), storageTestTimeout)
+	if info, err := binary.Stat(); err != nil || info.Mode().Perm()&0111 == 0 {
+		if required {
+			return ErrScheduledCore
+		}
+		return errors.New("core binary is not executable")
+	}
+	ctx, cancel := context.WithTimeout(parent, storageTestTimeout)
 	defer cancel()
 	// Descriptor paths keep validation on the exact files/directories we opened.
 	// The core's diagnostics may contain subscription tokens or config secrets.
@@ -559,6 +595,14 @@ func (r *Runtime) validateStoredProfile(s *profileStorage, dir *storageDir, name
 }
 
 func (r *Runtime) installStoredProfile(s *profileStorage, name string, data []byte) error {
+	return r.installStoredProfileContext(context.Background(), s, name, data, false)
+}
+
+func (r *Runtime) installStoredProfileContext(ctx context.Context, s *profileStorage, name string, data []byte, required bool) error {
+	return r.installStoredProfileGuarded(ctx, s, name, data, required, nil)
+}
+
+func (r *Runtime) installStoredProfileGuarded(ctx context.Context, s *profileStorage, name string, data []byte, required bool, guard base.CommitGuard) error {
 	f, err := os.CreateTemp(s.profiles.path(""), ".monobox-*.yaml")
 	if err != nil {
 		return errors.New("cannot stage profile")
@@ -575,14 +619,23 @@ func (r *Runtime) installStoredProfile(s *profileStorage, name string, data []by
 	if err != nil || closeErr != nil {
 		return errors.New("cannot stage profile")
 	}
-	if err := r.validateStoredProfile(s, s.profiles, filepath.Base(tempPath)); err != nil {
+	if err := r.validateStoredProfileContext(ctx, s, s.profiles, filepath.Base(tempPath), required); err != nil {
 		return err
 	}
 	if err := s.profiles.check(name); err != nil {
 		return err
 	}
-	if err := os.Rename(tempPath, s.profiles.path(name)); err != nil {
-		return errors.New("cannot atomically replace profile")
+	commit := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := os.Rename(tempPath, s.profiles.path(name)); err != nil {
+			return errors.New("cannot atomically replace profile")
+		}
+		return nil
 	}
-	return nil
+	if guard != nil {
+		return guard(ctx, commit)
+	}
+	return commit()
 }

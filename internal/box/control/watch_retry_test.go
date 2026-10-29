@@ -67,9 +67,12 @@ func TestWatcherDisableRemainsResponsiveDuringBootBackoff(t *testing.T) {
 	deps.service = func(_ *Runtime, action string) error {
 		actions <- action
 		if action == "start" {
-			return errors.New("invalid core config")
+			return errors.New("temporary environment failure")
 		}
 		return nil
+	}
+	deps.bootStart = func(r *Runtime, _ uint64) (bool, error) {
+		return false, deps.service(r, "start")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -80,7 +83,7 @@ func TestWatcherDisableRemainsResponsiveDuringBootBackoff(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	// Five failed starts leave the boot retry waiting for sixteen intervals.
+	// Five environment failures leave the boot retry waiting for sixteen intervals.
 	for i := 0; i < 5; i++ {
 		select {
 		case action := <-actions:
@@ -142,7 +145,6 @@ func TestWatcherEnableReappliesUnchangedNetworkPolicy(t *testing.T) {
 			t.Fatalf("missing %s", want)
 		}
 	}
-	expect("start")
 	expect("stop")
 	disable := filepath.Join(r.ModuleDir, "disable")
 	controllerTestWrite(t, disable, "")

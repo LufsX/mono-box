@@ -116,7 +116,17 @@ func (r *Runtime) profileDownloadRuntime() (*Runtime, error) {
 }
 
 func (r *Runtime) prepareProfileDownload(command, name, source string) (*profileDownload, error) {
-	unlock, err := r.storageLock()
+	ctx, cancel := context.WithTimeout(context.Background(), base.ServiceLockTimeout)
+	defer cancel()
+	snapshot, err := r.prepareProfileDownloadContext(ctx, command, name, source)
+	if errors.Is(err, context.DeadlineExceeded) {
+		return nil, base.ErrServiceLockTimeout
+	}
+	return snapshot, err
+}
+
+func (r *Runtime) prepareProfileDownloadContext(ctx context.Context, command, name, source string) (*profileDownload, error) {
+	unlock, err := r.scheduledLock(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -260,10 +270,14 @@ func validStorageURL(raw string) error {
 }
 
 func (r *Runtime) downloadStorageProfile(source string) ([]byte, error) {
+	return r.downloadStorageProfileContext(context.Background(), source)
+}
+
+func (r *Runtime) downloadStorageProfileContext(parent context.Context, source string) ([]byte, error) {
 	if err := validStorageURL(source); err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), storageTimeout)
+	ctx, cancel := context.WithTimeout(parent, storageTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
 	if err != nil {

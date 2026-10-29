@@ -20,6 +20,8 @@ func controllerTestDeps(t *testing.T) controllerDeps {
 	deps.output = func(context.Context, string, ...string) ([]byte, error) { return []byte(`mWifiInfo SSID: "home"`), nil }
 	deps.ready = func(context.Context) (bool, error) { return true, nil }
 	deps.running = func(*Runtime) (int, error) { return 0, nil }
+	deps.bootPlan = func(*Runtime) (uint64, error) { return 0, nil }
+	deps.bootStart = func(*Runtime, uint64) (bool, error) { return true, nil }
 	deps.service = func(*Runtime, string) error { t.Error("unexpected service action"); return nil }
 	return deps
 }

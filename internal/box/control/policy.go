@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LufsX/mono-box/internal/box/base"
+	"github.com/LufsX/mono-box/internal/box/service"
 )
 
 func (r *Runtime) reloadController() (*Runtime, error) {
@@ -100,7 +101,12 @@ func (r *Runtime) applyNetwork(ctx context.Context, deps controllerDeps) error {
 		if start && pid == 0 {
 			return deps.service(r, "start")
 		}
-		if !start && pid > 0 {
+		if !start {
+			// A dead core can still have a running intent. Record policy stop
+			// even then, so recovery cannot undo this network decision.
+			if pid == 0 {
+				return service.New(r.Runtime).EnsureStopped()
+			}
 			return deps.service(r, "stop")
 		}
 		return nil

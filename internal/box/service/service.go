@@ -100,10 +100,19 @@ func (r *Runtime) Service(action string) error {
 	defer lock.Close() // flock is released on close or process exit; never unlink this file.
 	switch action {
 	case "start":
+		if _, err := r.WriteServiceIntent(true); err != nil {
+			return err
+		}
 		return r.serviceStart(loc)
 	case "stop":
+		if _, err := r.WriteServiceIntent(false); err != nil {
+			return err
+		}
 		return r.serviceStop(loc)
 	case "restart":
+		if _, err := r.WriteServiceIntent(true); err != nil {
+			return err
+		}
 		if err := r.serviceStop(loc); err != nil {
 			return err
 		}
@@ -515,12 +524,16 @@ func serviceCoreArgs(loc serviceLocation, config string) []string {
 }
 
 func serviceValidateConfig(loc serviceLocation, config string, cred *syscall.Credential, timeout time.Duration) error {
+	return serviceValidateConfigContext(context.Background(), loc, config, cred, timeout)
+}
+
+func serviceValidateConfigContext(parent context.Context, loc serviceLocation, config string, cred *syscall.Credential, timeout time.Duration) error {
 	log, err := base.OpenRegular(filepath.Join(loc.run, "check.log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
 	defer log.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, loc.binary, append([]string{"-t"}, serviceCoreArgs(loc, config)...)...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = loc.core, log, log
@@ -537,7 +550,23 @@ func serviceValidateConfig(loc serviceLocation, config string, cred *syscall.Cre
 	return nil
 }
 
-func (r *Runtime) serviceStart(loc serviceLocation) (result error) {
+func (r *Runtime) serviceStart(loc serviceLocation) error {
+	return r.serviceStartContext(context.Background(), loc, nil)
+}
+
+// An optional commit guard keeps both existing boot callers and guarded starts compatible.
+func (r *Runtime) serviceStartContext(ctx context.Context, loc serviceLocation, guard func() error, commits ...base.CommitGuard) error {
+	var commit base.CommitGuard
+	if len(commits) != 0 {
+		commit = commits[0]
+	}
+	return r.serviceStartGuarded(ctx, loc, guard, commit)
+}
+
+func (r *Runtime) serviceStartGuarded(ctx context.Context, loc serviceLocation, guard func() error, commit base.CommitGuard) (result error) {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	r.maintainLogsWarning(loc, "")
 	var startupLog string
 	defer func() { r.maintainLogsWarning(loc, startupLog) }()
@@ -572,7 +601,7 @@ func (r *Runtime) serviceStart(loc serviceLocation) (result error) {
 	if err != nil {
 		return err
 	}
-	if err = serviceValidateConfig(loc, config, cred, serviceCheckTimeout); err != nil {
+	if err = serviceValidateConfigContext(ctx, loc, config, cred, serviceCheckTimeout); err != nil {
 		return err
 	}
 	stdout, err := base.OpenRegular(filepath.Join(loc.core, r.Config.BinName+"_"+time.Now().Format("20060102150405.000000000")+".log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY|os.O_APPEND, 0640)
@@ -586,10 +615,34 @@ func (r *Runtime) serviceStart(loc serviceLocation) (result error) {
 		return err
 	}
 	defer stderr.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if guard != nil {
+		if err := guard(); err != nil {
+			return err
+		}
+	}
 	cmd := exec.Command(loc.binary, serviceCoreArgs(loc, config)...)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = loc.core, stdout, stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Credential: cred}
-	if err = cmd.Start(); err != nil {
+	start := func() error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if guard != nil {
+			if err := guard(); err != nil {
+				return err
+			}
+		}
+		return cmd.Start()
+	}
+	if commit != nil {
+		err = commit(ctx, start)
+	} else {
+		err = start()
+	}
+	if err != nil {
 		return err
 	}
 	// Keep PID cleanup and diagnostics together, before log FDs close.
@@ -625,9 +678,19 @@ func (r *Runtime) serviceStart(loc serviceLocation) (result error) {
 		return abort(fmt.Errorf("core identity check failed during startup (initial check); see %s: %w", stderr.Name(), err))
 	}
 	select {
+	case <-ctx.Done():
+		return abort(ctx.Err())
 	case err := <-done:
 		return fmt.Errorf("core exited during startup (%v); see %s", err, stderr.Name())
 	case <-time.After(max(time.Duration(0), time.Until(startupDeadline))):
+	}
+	if err := ctx.Err(); err != nil {
+		return abort(err)
+	}
+	if guard != nil {
+		if err := guard(); err != nil {
+			return abort(err)
+		}
 	}
 	if err = serviceVerifyProcess(loc, id); err != nil {
 		return abort(fmt.Errorf("core identity check failed during startup (after grace period); see %s: %w", stderr.Name(), err))

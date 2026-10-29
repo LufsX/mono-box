@@ -1,17 +1,18 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/LufsX/mono-box/internal/box/base"
 )
 
-// PatchConfig merges form updates into the latest on-disk config under the same
-// lock used by service startup and profile selection.
+// PatchConfig merges form updates into the latest on-disk config while holding
+// the service lock followed by the config lock.
 func (r *Runtime) PatchConfig(encoded string) error {
 	data, err := base.DecodeText(encoded, base.ConfigSizeLimit)
 	if err != nil {
@@ -22,7 +23,7 @@ func (r *Runtime) PatchConfig(encoded string) error {
 		return errors.New("invalid config patch")
 	}
 	allowed := map[string]bool{}
-	for _, key := range []string{"bin_name", "CORE_USER_GROUP", "clash_api_port", "clash_api_secret", "toggle_action", "toggle_tun_target", "toggle_mode_cycle", "ctr_mode", "select_outbound", "target_cellular", "target_wifi", "target_wifi_list"} {
+	for _, key := range []string{"bin_name", "CORE_USER_GROUP", "clash_api_port", "clash_api_secret", "toggle_action", "toggle_tun_target", "toggle_mode_cycle", "ctr_mode", "select_outbound", "target_cellular", "target_wifi", "target_wifi_list", "auto_recovery", "auto_update_config", "config_update_interval_hours", "config_update_wifi_only"} {
 		allowed[key] = true
 	}
 	for key, value := range updates {
@@ -38,6 +39,11 @@ func (r *Runtime) PatchConfig(encoded string) error {
 		return err
 	}
 	defer unlock()
+	lock, err := r.storageConfigLock()
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	dir, err := openStorageDir(filepath.Join(r.Root, "scripts"), true)
 	if err != nil {
 		return err
@@ -47,9 +53,12 @@ func (r *Runtime) PatchConfig(encoded string) error {
 	if err != nil {
 		return err
 	}
-	merged := mergeConfigPatch(string(content), updates)
+	merged := base.MergeConfigPatch(string(content), updates)
 	if _, err = base.ParseConfig(merged); err != nil {
 		return errors.New("config patch would produce invalid configuration")
+	}
+	if err = base.InvalidateAutomationConfigGenerations(r.RunDir(), string(content), merged); err != nil {
+		return err
 	}
 	if err = dir.write("box.config", []byte(merged)); err != nil {
 		return err
@@ -57,70 +66,13 @@ func (r *Runtime) PatchConfig(encoded string) error {
 	return nil
 }
 
-func mergeConfigPatch(content string, updates map[string]string) string {
-	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
-	last := map[string]int{}
-	for i, line := range lines {
-		text := strings.TrimSpace(line)
-		if strings.HasPrefix(text, "#") {
-			continue
-		}
-		key, _, ok := strings.Cut(strings.TrimPrefix(text, "export "), "=")
-		if ok {
-			last[strings.TrimSpace(key)] = i
-		}
-	}
-	keys := make([]string, 0, len(updates))
-	for key := range updates {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		value := updates[key]
-		if i, ok := last[key]; ok {
-			eq := strings.IndexByte(lines[i], '=')
-			raw := lines[i][eq+1:]
-			comment := configComment(raw)
-			lines[i] = lines[i][:eq+1] + value
-			if comment != "" {
-				lines[i] += " " + comment
-			}
-		} else {
-			if len(lines) > 0 && lines[len(lines)-1] == "" {
-				lines = lines[:len(lines)-1]
-			}
-			lines = append(lines, key+"="+value, "")
-		}
-	}
-	return strings.Join(lines, "\n")
+// storageConfigLock must be called with the service lock already held.
+func (r *Runtime) storageConfigLock() (*os.File, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), base.ServiceLockTimeout)
+	defer cancel()
+	return base.AcquireConfigLock(ctx, filepath.Join(r.Root, "run"))
 }
 
-func configComment(raw string) string {
-	var quote byte
-	escaped := false
-	for i := 0; i < len(raw); i++ {
-		ch := raw[i]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if ch == '\\' && quote != '\'' {
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			if ch == quote {
-				quote = 0
-			}
-			continue
-		}
-		if ch == '\'' || ch == '"' {
-			quote = ch
-			continue
-		}
-		if ch == '#' && (i == 0 || raw[i-1] == ' ' || raw[i-1] == '\t') {
-			return raw[i:]
-		}
-	}
-	return ""
+func mergeConfigPatch(content string, updates map[string]string) string {
+	return base.MergeConfigPatch(content, updates)
 }

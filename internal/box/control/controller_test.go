@@ -174,10 +174,14 @@ func TestWatcherNetworkReplacementAndRetry(t *testing.T) {
 	deps.service = func(_ *Runtime, action string) error {
 		attempts++
 		if attempts == 1 {
-			return errors.New("temporary boot failure")
+			return errors.New("temporary environment failure")
 		}
 		actions <- action
 		return nil
+	}
+	deps.bootStart = func(r *Runtime, _ uint64) (bool, error) {
+		err := deps.service(r, "start")
+		return err == nil, err // Simulate failure before the intent can be claimed.
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

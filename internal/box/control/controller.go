@@ -44,6 +44,8 @@ type controllerDeps struct {
 	output       func(context.Context, string, ...string) ([]byte, error)
 	ready        func(context.Context) (bool, error)
 	service      func(*Runtime, string) error
+	bootPlan     func(*Runtime) (uint64, error)
+	bootStart    func(*Runtime, uint64) (bool, error)
 	running      func(*Runtime) (int, error)
 	logInterval  time.Duration
 	maintainLogs func(*Runtime) error
@@ -56,6 +58,8 @@ func defaultControllerDeps() controllerDeps {
 			return androidBootReady(ctx, "/sdcard/Android", "/data/system/packages.xml", androidOutput)
 		},
 		service:      func(r *Runtime, action string) error { return service.New(r.Runtime).Service(action) },
+		bootPlan:     func(r *Runtime) (uint64, error) { return service.New(r.Runtime).BootPlan() },
+		bootStart:    func(r *Runtime, revision uint64) (bool, error) { return service.New(r.Runtime).BootStart(revision) },
 		running:      func(r *Runtime) (int, error) { return service.New(r.Runtime).RunningPID() },
 		logInterval:  30 * time.Second,
 		maintainLogs: func(r *Runtime) error { return service.New(r.Runtime).MaintainLogs() },
@@ -107,13 +111,30 @@ func (r *Runtime) controller(ctx context.Context, args []string, deps controller
 		}
 		ticker := time.NewTicker(deps.interval)
 		defer ticker.Stop()
+		var plan controllerBootPlan
+		var retry watchRetry
+		bootReady := false
 		for {
-			ready, err := deps.ready(ctx)
-			if err != nil {
-				return err
-			}
-			if ready {
-				return r.bootController(deps)
+			if retry.ready("boot", time.Now()) {
+				if !bootReady {
+					var err error
+					bootReady, err = deps.ready(ctx)
+					if err != nil {
+						bootReady = false
+						r.controllerError(err)
+						retry.failed(time.Now(), deps.interval)
+					}
+				}
+				if bootReady {
+					done, err := r.bootController(deps, &plan)
+					if done {
+						return err
+					}
+					if err != nil {
+						r.controllerError(err)
+					}
+					retry.failed(time.Now(), deps.interval)
+				}
 			}
 			select {
 			case <-ctx.Done():
@@ -159,20 +180,35 @@ func (r *Runtime) controller(ctx context.Context, args []string, deps controller
 	return nil
 }
 
-func (r *Runtime) bootController(deps controllerDeps) error {
+type controllerBootPlan struct {
+	revision uint64
+	captured bool
+}
+
+func (r *Runtime) bootController(deps controllerDeps, plan *controllerBootPlan) (bool, error) {
 	lock, err := r.controllerLock(false)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer unlockController(lock)
-	current, err := r.reloadController()
-	if err != nil {
-		return err
+	if !plan.captured {
+		capture := deps.bootPlan
+		if capture == nil {
+			capture = func(r *Runtime) (uint64, error) { return service.New(r.Runtime).BootPlan() }
+		}
+		revision, err := capture(r)
+		if err != nil {
+			return false, err
+		}
+		plan.revision, plan.captured = revision, true
 	}
-	if base.Exists(filepath.Join(r.Root, "manual")) || base.Exists(filepath.Join(r.ModuleDir, "disable")) {
-		return nil
+	start := deps.bootStart
+	if start == nil {
+		start = func(r *Runtime, revision uint64) (bool, error) {
+			return service.New(r.Runtime).BootStart(revision)
+		}
 	}
-	return deps.service(current, "start")
+	return start(r, plan.revision)
 }
 
 func (r *Runtime) controllerLock(nonblock bool) (*os.File, error) {
@@ -265,10 +301,13 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 		}
 	}()
 	ctx, cancel := context.WithCancel(ctx)
+	automationReady := make(chan struct{})
+	automationDone := r.watchAutomation(ctx, deps.netPath, automationReady)
 	logResults, logsDone := watchLogMaintenance(ctx, deps.logInterval, func() error { return deps.maintainLogs(r) })
 	defer func() {
 		cancel()
 		<-logsDone
+		<-automationDone
 	}()
 	boot := make(chan error, 1)
 	go func() {
@@ -315,6 +354,7 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 	var disableRetry, bootRetry, snapshotRetry, networkRetry watchRetry
 	var readyError, disableError, bootError, snapshotError, networkError, logError watchError
 	bootReady, bootDone := false, false
+	var bootPlan controllerBootPlan
 	for {
 		select {
 		case <-ctx.Done():
@@ -324,8 +364,9 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 			continue
 		case bootErr := <-boot:
 			readyError.report(r, bootErr, time.Now())
-			if bootErr == nil {
+			if bootErr == nil && !bootReady {
 				bootReady = true
+				close(automationReady)
 			}
 		case <-ticker.C:
 		}
@@ -362,12 +403,11 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 			}
 		}
 		if bootReady && !bootDone && bootRetry.ready("boot", time.Now()) {
-			err = r.bootController(deps)
+			bootDone, err = r.bootController(deps, &bootPlan)
 			bootError.report(r, err, time.Now())
-			if err != nil {
+			if !bootDone {
 				bootRetry.failed(time.Now(), deps.interval)
 			} else {
-				bootDone = true
 				bootRetry.reset()
 				networkRetry.reset()
 			}
