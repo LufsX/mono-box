@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { stores, actions } from "$lib/api";
   import type { LogType } from "$lib/terminal";
 
@@ -7,13 +8,24 @@
   const currentMode = stores.currentMode;
   const modes = ["rule", "global", "direct"];
   let switchingMode = $state<string | null>(null);
+  let disposed = false;
+  const refreshController = new AbortController();
+
+  onDestroy(() => {
+    disposed = true;
+    refreshController.abort();
+  });
 
   async function handleSwitch(newMode: string) {
-    if (disabled || newMode === $currentMode || switchingMode !== null) return;
+    if (disposed || disabled || newMode === $currentMode || switchingMode !== null) return;
     switchingMode = newMode;
     onLog?.(`> Switching proxy mode to ${newMode}...`, "cmd");
     try {
       await actions.switchClashMode(newMode as import("$lib/api").ProxyMode);
+      if (disposed) return;
+      const status = await actions.refreshConfigs(refreshController.signal);
+      if (!status.ok) throw new Error(status.message);
+      if (disposed) return;
       onLog?.(`[Core] Proxy mode switched to ${newMode}`, "success");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

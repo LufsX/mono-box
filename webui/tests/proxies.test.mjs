@@ -51,7 +51,8 @@ const providerControl = elements.find((node) => node.name === "button"
   && attribute(node, "onclick") && expression(node, "onclick").includes("updateProvider("));
 const testExports = `
 return {
-  loadData, switchMode, selectNode, updateProvider, testSingleNode, runNodeTest, retryLoadData,
+  loadData, switchMode, selectNode, updateProvider, testSingleNode, runNodeTest, runTestBatch,
+  testGroup, testProviderNode, readNodeLatency, providerUsableNodes, retryLoadData,
   chooseMode(value) { modeSelectValue = value; return switchMode(value); },
   snapshot: () => ({ proxies, providers, modeSelectValue, currentMode: $currentMode,
     error, errorReason, switchingMode, selectingGroup, updatingProvider, mutationInFlight,
@@ -345,4 +346,80 @@ test("leaving during a test prevents its final refresh", async () => {
   await testing;
   assert.equal(h.reads.length, 1);
   assert.deepEqual(h.page.snapshot().testingOwners, {});
+});
+
+test("batch workers keep five requests in flight and commit every completed test", async () => {
+  const h = harness();
+  await h.start();
+  const targets = Array.from({ length: 12 }, (_, i) => target(`N${i}`));
+  const testing = h.page.runTestBatch("batch", targets);
+  assert.equal(h.delays.length, 5);
+  for (let i = 0; i < targets.length; i++) {
+    assert.equal(h.delays.length, Math.min(targets.length, i + 5));
+    h.delays[i].resolve(i + 1);
+    await flush();
+  }
+  const results = await testing;
+  assert.equal(results.length, 12);
+  assert.equal(results.every((result) => result.status === "success"), true);
+  assert.equal(h.page.snapshot().testState.revision, 12);
+});
+
+test("leaving a batch stops queued dispatch but lets the five issued requests settle", async () => {
+  const h = harness();
+  const data = fixture();
+  const names = Array.from({ length: 12 }, (_, i) => `N${i}`);
+  data.proxies.G.all = names;
+  for (const name of names) data.proxies[name] = { name, type: "SS" };
+  await h.start(data);
+  const testing = h.page.testGroup(event, "G");
+  assert.equal(h.delays.length, 5);
+  h.delays[0].resolve(10);
+  await flush();
+  assert.equal(h.delays.length, 6);
+  assert.equal(h.page.snapshot().testState.revision, 1);
+  h.leave();
+  for (const [i, request] of h.delays.slice(1).entries()) {
+    if (i === 0) request.reject(new Error("issued request failed"));
+    else request.resolve(42);
+  }
+  await testing;
+  assert.equal(h.delays.length, 6);
+  assert.equal(h.reads.length, 1);
+  assert.equal(h.page.snapshot().testState.revision, 1);
+  assert.deepEqual(h.page.snapshot().testingOwners, {});
+  await h.page.runNodeTest(target("late"));
+  assert.deepEqual(await h.page.runTestBatch("late", [target("later")]), []);
+  assert.equal(h.delays.length, 6);
+});
+
+test("explicit provider latency display reads results without scanning provider membership", async () => {
+  const h = harness();
+  const data = fixture();
+  const names = Array.from({ length: 1000 }, (_, i) => `N${i}`);
+  let nameReads = 0;
+  data.providers.P.proxies = names.map((name, i) => ({
+    get name() { nameReads++; return name; },
+    type: "SS",
+    history: [{ time: "2026-01-01T00:00:00Z", delay: i % 2 ? 0 : 30 }],
+  }));
+  data.providers.Q.proxies = [{
+    name: "N0", type: "SS", history: [{ time: "2026-01-01T00:00:00Z", delay: 90 }],
+  }];
+  data.proxies.N0 = {
+    name: "N0", type: "SS", history: [{ time: "2026-01-01T00:00:00Z", delay: 10 }],
+  };
+  await h.start(data);
+  nameReads = 0;
+  for (const [i, name] of names.entries()) assert.equal(h.page.readNodeLatency(name, "P"), i % 2 ? 0 : 30);
+  assert.equal(nameReads, 0);
+  assert.equal(h.page.providerUsableNodes("P"), 500);
+  assert.equal(nameReads, 1000);
+  assert.equal(h.page.readNodeLatency("N0", "Q"), 90);
+  assert.equal(h.page.readNodeLatency("N0"), 10);
+  // An existing provider with a stale node name must not fall back to /proxies.
+  await h.page.testProviderNode(event, "Q", "A");
+  await h.page.testProviderNode(event, "removed", "N0");
+  assert.equal(h.delays.length, 0);
+  assert.match(h.page.snapshot().error, /无法确定节点的测速资源/);
 });

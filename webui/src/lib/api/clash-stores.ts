@@ -19,12 +19,12 @@ export function createClashStores(clashApi: ClashApiPort) {
     return refreshConfigs();
   }
 
-  async function refreshConfigs() {
+  async function refreshConfigs(signal?: AbortSignal) {
     const sequence = ++configSequence;
     try {
       const configData = await clashApi.getConfigs();
       const status: CoreStatusResult = { ok: true };
-      if (sequence === configSequence) {
+      if (sequence === configSequence && !signal?.aborted) {
         configs.set(configData);
         if (configData?.mode) currentMode.set(configData.mode as ProxyMode);
         coreStatus.set(status);
@@ -32,7 +32,7 @@ export function createClashStores(clashApi: ClashApiPort) {
       return status;
     } catch (error) {
       const status = classifyConnectionError(error);
-      if (sequence === configSequence) {
+      if (sequence === configSequence && !signal?.aborted) {
         configs.set(null);
         coreStatus.set(status);
       }
@@ -69,7 +69,6 @@ export function createClashStores(clashApi: ClashApiPort) {
 
   async function switchClashMode(mode: ProxyMode) {
     await clashApi.setMode(mode);
-    currentMode.set(mode);
   }
 
   return {

@@ -89,6 +89,7 @@
   ];
 
   function readNodeLatency(name: string, providerName?: string): number {
+    if (providerName !== undefined) return readNodeTestLatency(testState, name, providerName);
     const target = resolveProxyTestTarget(proxies, providers, name, undefined, providerName);
     return readNodeTestLatency(testState, name, target.providerName);
   }
@@ -297,6 +298,7 @@
   }
 
   async function runNodeTest(target: ProxyTestTarget): Promise<NodeTestResult> {
+    if (disposed) return { name: target.name, status: "error", delay: 0, message: "页面已关闭", target };
     if (!target.apiName) {
       return {
         name: target.name,
@@ -325,7 +327,7 @@
     let nextIndex = 0;
 
     async function worker() {
-      while (nextIndex < targets.length) {
+      while (!disposed && nextIndex < targets.length) {
         const target = targets[nextIndex++];
         const result = await runNodeTest(target);
         results.push(result);
