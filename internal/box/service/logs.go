@@ -24,6 +24,7 @@ type logsEntry struct {
 	size   int64
 	device uint64
 	inode  uint64
+	mtime  time.Time
 }
 
 func (r *Runtime) logsWriter() io.Writer {
@@ -98,7 +99,7 @@ func (r *Runtime) logsCollect(loc serviceLocation) ([]logsEntry, error) {
 				return err
 			}
 			stat := info.Sys().(*syscall.Stat_t)
-			entries = append(entries, logsEntry{path: path, size: info.Size(), device: uint64(stat.Dev), inode: stat.Ino})
+			entries = append(entries, logsEntry{path: path, size: info.Size(), device: uint64(stat.Dev), inode: stat.Ino, mtime: info.ModTime()})
 		}
 		return nil
 	}

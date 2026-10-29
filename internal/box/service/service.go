@@ -538,6 +538,9 @@ func serviceValidateConfig(loc serviceLocation, config string, cred *syscall.Cre
 }
 
 func (r *Runtime) serviceStart(loc serviceLocation) (result error) {
+	r.maintainLogsWarning(loc, "")
+	var startupLog string
+	defer func() { r.maintainLogsWarning(loc, startupLog) }()
 	if id, err := serviceRunning(loc); err == nil {
 		if err := r.serviceModuleStatus("Running"); err != nil {
 			return err
@@ -572,12 +575,13 @@ func (r *Runtime) serviceStart(loc serviceLocation) (result error) {
 	if err = serviceValidateConfig(loc, config, cred, serviceCheckTimeout); err != nil {
 		return err
 	}
-	stdout, err := base.OpenRegular(filepath.Join(loc.core, r.Config.BinName+"_"+time.Now().Format("20060102150405.000000000")+".log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0640)
+	stdout, err := base.OpenRegular(filepath.Join(loc.core, r.Config.BinName+"_"+time.Now().Format("20060102150405.000000000")+".log"), os.O_CREATE|os.O_EXCL|os.O_WRONLY|os.O_APPEND, 0640)
 	if err != nil {
 		return err
 	}
 	defer stdout.Close()
-	stderr, err := base.OpenRegular(filepath.Join(loc.run, "error_"+r.Config.BinName+".log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	startupLog = stdout.Name()
+	stderr, err := base.OpenRegular(filepath.Join(loc.run, "error_"+r.Config.BinName+".log"), os.O_CREATE|os.O_WRONLY|os.O_TRUNC|os.O_APPEND, 0600)
 	if err != nil {
 		return err
 	}
@@ -655,7 +659,12 @@ func serviceWaitStopped(loc serviceLocation, id serviceIdentity, timeout time.Du
 	}
 }
 
-func (r *Runtime) serviceStop(loc serviceLocation) error {
+func (r *Runtime) serviceStop(loc serviceLocation) (result error) {
+	defer func() {
+		if result == nil {
+			r.maintainLogsWarning(loc, "")
+		}
+	}()
 	id, err := serviceRunning(loc)
 	if errors.Is(err, ErrStopped) {
 		return errors.Join(serviceRemovePID(loc), r.serviceModuleStatus("Stopped"))

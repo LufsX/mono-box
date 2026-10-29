@@ -14,6 +14,9 @@ import (
 
 const ServiceLockTimeout = 40 * time.Second
 
+// ErrServiceLockTimeout reports contention after the requested lock wait.
+var ErrServiceLockTimeout = errors.New("timed out waiting for service lock")
+
 // Every component below the trusted root is opened without following symlinks.
 // Directory descriptors also anchor subsequent operations against rename races.
 func OpenDirectory(path string, create bool) (*os.File, error) {
@@ -112,9 +115,13 @@ func AcquireServiceLock(runDir string, timeout time.Duration) (*os.File, error) 
 			lock.Close()
 			return nil, err
 		}
+		if timeout == 0 && errors.Is(err, syscall.EINTR) {
+			lock.Close()
+			return nil, err
+		}
 		if time.Now().After(deadline) {
 			lock.Close()
-			return nil, errors.New("timed out waiting for service lock")
+			return nil, ErrServiceLockTimeout
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

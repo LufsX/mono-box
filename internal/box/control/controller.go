@@ -39,12 +39,14 @@ func controllerRunningError(err error) error {
 }
 
 type controllerDeps struct {
-	netPath  string
-	interval time.Duration
-	output   func(context.Context, string, ...string) ([]byte, error)
-	ready    func(context.Context) (bool, error)
-	service  func(*Runtime, string) error
-	running  func(*Runtime) (int, error)
+	netPath      string
+	interval     time.Duration
+	output       func(context.Context, string, ...string) ([]byte, error)
+	ready        func(context.Context) (bool, error)
+	service      func(*Runtime, string) error
+	running      func(*Runtime) (int, error)
+	logInterval  time.Duration
+	maintainLogs func(*Runtime) error
 }
 
 func defaultControllerDeps() controllerDeps {
@@ -53,8 +55,10 @@ func defaultControllerDeps() controllerDeps {
 		ready: func(ctx context.Context) (bool, error) {
 			return androidBootReady(ctx, "/sdcard/Android", "/data/system/packages.xml", androidOutput)
 		},
-		service: func(r *Runtime, action string) error { return service.New(r.Runtime).Service(action) },
-		running: func(r *Runtime) (int, error) { return service.New(r.Runtime).RunningPID() },
+		service:      func(r *Runtime, action string) error { return service.New(r.Runtime).Service(action) },
+		running:      func(r *Runtime) (int, error) { return service.New(r.Runtime).RunningPID() },
+		logInterval:  30 * time.Second,
+		maintainLogs: func(r *Runtime) error { return service.New(r.Runtime).MaintainLogs() },
 	}
 }
 
@@ -261,7 +265,11 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 		}
 	}()
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	logResults, logsDone := watchLogMaintenance(ctx, deps.logInterval, func() error { return deps.maintainLogs(r) })
+	defer func() {
+		cancel()
+		<-logsDone
+	}()
 	boot := make(chan error, 1)
 	go func() {
 		ticker := time.NewTicker(deps.interval)
@@ -305,12 +313,15 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 	observedDisabled := disabled
 	var network, observedNetwork string
 	var disableRetry, bootRetry, snapshotRetry, networkRetry watchRetry
-	var readyError, disableError, bootError, snapshotError, networkError watchError
+	var readyError, disableError, bootError, snapshotError, networkError, logError watchError
 	bootReady, bootDone := false, false
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case logErr := <-logResults:
+			logError.report(r, logErr, time.Now())
+			continue
 		case bootErr := <-boot:
 			readyError.report(r, bootErr, time.Now())
 			if bootErr == nil {
