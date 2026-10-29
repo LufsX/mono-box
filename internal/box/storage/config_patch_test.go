@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LufsX/mono-box/internal/box/base"
@@ -66,6 +67,61 @@ func TestInvalidPatchDoesNotModifyFile(t *testing.T) {
 			t.Fatalf("changed: %s", got)
 		}
 	}
+}
+
+func TestConfigWriteAndPatchSizeLimit(t *testing.T) {
+	r, _, _ := storageFixture(t)
+	path := filepath.Join(r.Root, "scripts", "box.config")
+	const limit = 16 << 20
+	header := "clash_api_port=9090\n"
+	padding := limit - len(header)
+	content := header + strings.Repeat("# padding\n", padding/10) + strings.Repeat("\n", padding%10)
+	storageRun(t, r, "config", "write", storageB64(content))
+	if got := storageRun(t, r, "config", "read"); got != content {
+		t.Fatal("config at size limit did not round trip")
+	}
+	// Replacing a value without growing the file is valid at exactly 16 MiB.
+	storageRun(t, r, "config", "patch", storageB64(`{"clash_api_port":"9191"}`))
+	want := strings.Replace(content, "9090", "9191", 1)
+	if got := storageRead(t, path); got != want {
+		t.Fatal("patch at size limit produced incorrect config")
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, command, data string
+	}{
+		{"write", "write", content + "\n"},
+		{"merged-patch", "patch", `{"target_wifi":"'new'"}`},
+		{"encoded-patch", "patch", strings.Repeat(" ", limit) + "{}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := r.Storage([]string{"config", tc.command, storageB64(tc.data)}); err == nil {
+				t.Fatal("oversized config operation accepted")
+			}
+			after, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(before, after) || storageRead(t, path) != want {
+				t.Fatal("rejected operation replaced or modified the original file")
+			}
+		})
+	}
+	// An oversized on-disk file must also be rejected by read and patch.
+	storageWriteFixture(t, path, content+"\n", 0600)
+	if err := r.Storage([]string{"config", "read"}); err == nil {
+		t.Fatal("oversized on-disk config read accepted")
+	}
+	if err := r.PatchConfig(storageB64(`{"clash_api_port":"9292"}`)); err == nil {
+		t.Fatal("oversized on-disk config patch accepted")
+	}
+	if storageRead(t, path) != content+"\n" {
+		t.Fatal("patch modified oversized on-disk config")
+	}
+	storageNoTemps(t, r)
 }
 
 func TestMergeConfigLastDuplicateAndQuotedComments(t *testing.T) {

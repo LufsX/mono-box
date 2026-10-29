@@ -370,6 +370,88 @@ func downloadTestRuntime(t *testing.T, client *http.Client, original []byte) (*R
 	return &Runtime{Runtime: &base.Runtime{Root: root, Config: base.Config{BinName: "different"}, Out: &out, HTTP: client}}, &out
 }
 
+func TestDownloadCoreRequestTimeouts(t *testing.T) {
+	for _, timeout := range []time.Duration{60 * time.Second, 20 * time.Millisecond, 0, 10 * time.Minute} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			r, _ := downloadTestRuntime(t, nil, nil)
+			shared, err := base.New(r.Root, t.TempDir(), io.Discard, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := shared.HTTP
+			client.Timeout = timeout
+			r.HTTP = client
+			arch := downloadTestArch(t, "arm64-v8a")
+			core := downloadTestELF(arch)
+			asset := downloadAsset{"mihomo-android-arm64", "https://github.com/release/mihomo-android-arm64"}
+			var requests, redirects int
+			client.CheckRedirect = func(*http.Request, []*http.Request) error {
+				redirects++
+				return nil
+			}
+			client.Transport = downloadTestTransport(func(req *http.Request) (*http.Response, error) {
+				requests++
+				want := 30 * time.Second
+				if req.URL.String() == asset.URL {
+					want = 5 * time.Minute
+				}
+				deadline, ok := req.Context().Deadline()
+				if remaining := time.Until(deadline); !ok || remaining > want || remaining < want-time.Second {
+					t.Errorf("%s: deadline remaining %v, want %v", req.URL, remaining, want)
+				}
+				response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), ContentLength: -1}
+				switch req.URL.String() {
+				case downloadLatestAPI:
+					response.StatusCode = http.StatusFound
+					response.Header.Set("Location", "https://api.github.com/metadata")
+					response.Body = io.NopCloser(strings.NewReader(""))
+				case "https://api.github.com/metadata":
+					data, err := json.Marshal(map[string]any{"assets": []downloadAsset{asset}})
+					if err != nil {
+						return nil, err
+					}
+					response.Body = io.NopCloser(bytes.NewReader(data))
+				case asset.URL:
+					if timeout == 20*time.Millisecond {
+						timer := time.NewTimer(50 * time.Millisecond)
+						defer timer.Stop()
+						select {
+						case <-timer.C:
+						case <-req.Context().Done():
+							return nil, req.Context().Err()
+						}
+					}
+					response.Body = io.NopCloser(bytes.NewReader(core))
+				default:
+					return nil, fmt.Errorf("unexpected URL: %s", req.URL)
+				}
+				return response, nil
+			})
+			if err := r.DownloadCore("mihomo", true, false, arch.abi); err != nil {
+				t.Fatal(err)
+			}
+			if requests != 3 || redirects != 1 {
+				t.Fatalf("requests=%d redirects=%d", requests, redirects)
+			}
+			if r.HTTP != client || client.Timeout != timeout {
+				t.Fatal("download changed the shared HTTP client")
+			}
+			// The original callback still accepts this URL; the download wrapper rejects it.
+			probe, err := http.NewRequest(http.MethodGet, "http://example.com", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := client.CheckRedirect(probe, nil); err != nil || redirects != 2 {
+				t.Fatalf("shared redirect callback changed: %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(r.Root, "bin", "mihomo"))
+			if err != nil || !bytes.Equal(got, core) {
+				t.Fatalf("core was not installed: %v", err)
+			}
+		})
+	}
+}
+
 func TestDownloadHTTPBounds(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

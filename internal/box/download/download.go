@@ -254,13 +254,11 @@ func (r *Runtime) downloadGet(source string, dst io.Writer, limit int64, timeout
 	}
 	req.Header.Set("User-Agent", "MonoBox")
 	req.Header.Set("Accept-Encoding", "identity")
-	client := http.Client{Timeout: timeout}
+	var client http.Client
 	if r.HTTP != nil {
 		client = *r.HTTP
-		if client.Timeout <= 0 || client.Timeout > timeout {
-			client.Timeout = timeout
-		}
 	}
+	client.Timeout = timeout
 	previousRedirect := client.CheckRedirect
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 10 || !downloadValidURL(req.URL.String()) {

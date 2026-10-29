@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -201,7 +199,7 @@ func (r *Runtime) Storage(args []string) error {
 	var content []byte
 	var err error
 	if command == "config write" {
-		content, err = base.DecodeText(args[2], storageContentLimit)
+		content, err = base.DecodeText(args[2], base.ConfigSizeLimit)
 		if err != nil {
 			return err
 		}
@@ -244,6 +242,9 @@ func (r *Runtime) Storage(args []string) error {
 			return err
 		}
 	}
+	if command == "profiles download" || command == "profiles update" {
+		return r.storageDownloadProfile(command, name, source)
+	}
 	unlock, err := r.storageLock()
 	if err != nil {
 		return err
@@ -259,7 +260,7 @@ func (r *Runtime) Storage(args []string) error {
 		if command == "config write" {
 			return dir.write("box.config", content)
 		}
-		data, err := dir.read("box.config", storageContentLimit)
+		data, err := dir.read("box.config", base.ConfigSizeLimit)
 		if err != nil {
 			return err
 		}
@@ -301,16 +302,23 @@ func (s *profileStorage) close() {
 	}
 }
 
-func (r *Runtime) openProfileStorage() (*profileStorage, error) {
+func validProfileCoreName(name string) error {
 	// Config can also be supplied directly by embedders instead of ParseConfig.
-	if r.Config.BinName == "" || filepath.Base(r.Config.BinName) != r.Config.BinName ||
-		strings.ContainsAny(r.Config.BinName, "/\\\x00") || r.Config.BinName == "." || r.Config.BinName == ".." {
-		return nil, errors.New("invalid core directory")
+	if name == "" || filepath.Base(name) != name ||
+		strings.ContainsAny(name, "/\\\x00") || name == "." || name == ".." {
+		return errors.New("invalid core directory")
 	}
-	for _, ch := range r.Config.BinName {
+	for _, ch := range name {
 		if unicode.IsControl(ch) {
-			return nil, errors.New("invalid core directory")
+			return errors.New("invalid core directory")
 		}
+	}
+	return nil
+}
+
+func (r *Runtime) openProfileStorage() (*profileStorage, error) {
+	if err := validProfileCoreName(r.Config.BinName); err != nil {
+		return nil, err
 	}
 	s := &profileStorage{corePath: r.CoreDir()}
 	var err error
@@ -473,31 +481,17 @@ func (r *Runtime) storageProfiles(command, name, source, kind string, content []
 			return err
 		}
 		return r.storageOutput(row)
-	case "profiles update":
-		f, err := s.profiles.open(name, syscall.O_RDONLY)
-		if err != nil {
-			return err
-		}
-		f.Close()
-		source, err = s.source(name)
-		if err != nil {
-			return err
-		}
-		if source == "" {
-			return errors.New("config profile has no source URL")
-		}
 	}
+	return r.commitStoredProfile(s, name, source, content, active)
+}
+
+// The caller holds service.lock through validation and the final replacement.
+func (r *Runtime) commitStoredProfile(s *profileStorage, name, source string, content []byte, active string) error {
 	if err := s.profiles.check(name); err != nil {
 		return err
 	}
 	if err := s.sources.check(name + ".url"); err != nil {
 		return err
-	}
-	if command == "profiles download" || command == "profiles update" {
-		content, err = r.downloadStorageProfile(source)
-		if err != nil {
-			return err
-		}
 	}
 	if len(content) == 0 {
 		return errors.New("config profile is empty")
@@ -505,6 +499,7 @@ func (r *Runtime) storageProfiles(command, name, source, kind string, content []
 	if err := r.installStoredProfile(s, name, content); err != nil {
 		return err
 	}
+	var err error
 	if source == "" {
 		err = s.sources.remove(name + ".url")
 	} else {
@@ -518,74 +513,6 @@ func (r *Runtime) storageProfiles(command, name, source, kind string, content []
 		return err
 	}
 	return r.storageOutput(row)
-}
-
-func validStorageURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.Opaque != "" {
-		return errors.New("only valid HTTP or HTTPS source URLs are allowed")
-	}
-	for _, ch := range raw {
-		if unicode.IsControl(ch) || unicode.IsSpace(ch) {
-			return errors.New("invalid source URL")
-		}
-	}
-	return nil
-}
-
-func (r *Runtime) downloadStorageProfile(source string) ([]byte, error) {
-	if err := validStorageURL(source); err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), storageTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, source, nil)
-	if err != nil {
-		return nil, errors.New("invalid source request")
-	}
-	client := http.Client{}
-	if r.HTTP != nil {
-		client = *r.HTTP
-	}
-	// Bound even clients supplied without a timeout. Keep injected transports.
-	if client.Timeout <= 0 || client.Timeout > storageTimeout {
-		client.Timeout = storageTimeout
-	}
-	client.Jar = nil
-	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 10 {
-			return errors.New("too many redirects")
-		}
-		if err := validStorageURL(req.URL.String()); err != nil {
-			return err
-		}
-		if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
-			return errors.New("insecure redirect")
-		}
-		return nil
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, errors.New("profile download failed")
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("profile download: HTTP %d", resp.StatusCode)
-	}
-	if resp.ContentLength > storageContentLimit {
-		return nil, errors.New("downloaded profile exceeds size limit")
-	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, storageContentLimit+1))
-	if err != nil {
-		return nil, errors.New("cannot read downloaded profile")
-	}
-	if len(data) > storageContentLimit {
-		return nil, errors.New("downloaded profile exceeds size limit")
-	}
-	if len(data) == 0 {
-		return nil, errors.New("downloaded profile is empty")
-	}
-	return data, nil
 }
 
 func (r *Runtime) validateStoredProfile(s *profileStorage, dir *storageDir, name string) error {

@@ -32,7 +32,7 @@ func (r *Runtime) serviceLockedRuntime(timeout time.Duration) (*Runtime, service
 	}
 	current := *r
 	current.Runtime = r.Runtime.WithConfig(r.Config)
-	data, err := serviceReadSmall(filepath.Join(root, "scripts", "box.config"))
+	data, err := serviceReadLimited(filepath.Join(root, "scripts", "box.config"), base.ConfigSizeLimit)
 	if err == nil {
 		current.Config, err = base.ParseConfig(string(data))
 	} else if errors.Is(err, os.ErrNotExist) {

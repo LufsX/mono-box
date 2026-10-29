@@ -1,6 +1,7 @@
 package base
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +15,30 @@ func TestRepositoryConfig(t *testing.T) {
 	}
 	if c.BinName != "mihomo" || c.APIPort != 9090 || c.ToggleModeCycle != "rule,global,direct" {
 		t.Fatalf("%+v", c)
+	}
+}
+
+func TestConfigSizeLimit(t *testing.T) {
+	const limit = 16 << 20
+	// Short comments keep the scanner's per-line limit out of this size check.
+	content := strings.Repeat("# padding\n", limit/10) + strings.Repeat("\n", limit%10)
+	path := filepath.Join(t.TempDir(), "box.config")
+	for _, size := range []int{limit - 1, limit, limit + 1} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) {
+			data := (content + "\n")[:size]
+			_, parseErr := ParseConfig(data)
+			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, loadErr := LoadConfig(path)
+			if size <= limit {
+				if parseErr != nil || loadErr != nil {
+					t.Fatalf("valid config rejected: parse=%v load=%v", parseErr, loadErr)
+				}
+			} else if parseErr == nil || loadErr == nil {
+				t.Fatalf("oversized config accepted: parse=%v load=%v", parseErr, loadErr)
+			}
+		})
 	}
 }
 

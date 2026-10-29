@@ -64,13 +64,17 @@ func (r *Runtime) serviceLocation() (serviceLocation, error) {
 }
 
 func serviceReadSmall(path string) ([]byte, error) {
+	return serviceReadLimited(path, 64*1024)
+}
+
+func serviceReadLimited(path string, limit int64) ([]byte, error) {
 	f, err := base.OpenRegular(path, os.O_RDONLY, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 64*1024+1))
-	if len(data) > 64*1024 {
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if int64(len(data)) > limit {
 		return nil, fmt.Errorf("file too large: %s", path)
 	}
 	return data, err

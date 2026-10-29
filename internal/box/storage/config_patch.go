@@ -13,7 +13,7 @@ import (
 // PatchConfig merges form updates into the latest on-disk config under the same
 // lock used by service startup and profile selection.
 func (r *Runtime) PatchConfig(encoded string) error {
-	data, err := base.DecodeText(encoded, storageContentLimit)
+	data, err := base.DecodeText(encoded, base.ConfigSizeLimit)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (r *Runtime) PatchConfig(encoded string) error {
 		return err
 	}
 	defer dir.Close()
-	content, err := dir.read("box.config", storageContentLimit)
+	content, err := dir.read("box.config", base.ConfigSizeLimit)
 	if err != nil {
 		return err
 	}

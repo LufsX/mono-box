@@ -4,10 +4,14 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
 )
+
+// ConfigSizeLimit is the maximum size in bytes of box.config.
+const ConfigSizeLimit = 16 << 20
 
 type Config struct {
 	BinName         string
@@ -32,10 +36,15 @@ func DefaultConfig() Config {
 }
 
 func LoadConfig(path string) (Config, error) {
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return DefaultConfig(), nil
 	}
+	if err != nil {
+		return Config{}, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, ConfigSizeLimit+1))
 	if err != nil {
 		return Config{}, err
 	}
@@ -44,6 +53,9 @@ func LoadConfig(path string) (Config, error) {
 
 // ParseConfig reads literal shell assignments without executing user content.
 func ParseConfig(content string) (Config, error) {
+	if len(content) > ConfigSizeLimit {
+		return Config{}, fmt.Errorf("box.config exceeds %d bytes", ConfigSizeLimit)
+	}
 	c := DefaultConfig()
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 4096), 1024*1024)
