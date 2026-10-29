@@ -220,6 +220,7 @@ export interface ModuleInfo {
   author: string;
   description: string;
   updateJson: string;
+  moduleAbi?: string;
 }
 
 export interface ClashApiPort {

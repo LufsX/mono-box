@@ -386,6 +386,7 @@ export async function getModuleInfo(): Promise<ModuleInfo> {
     author: parsed.author || "",
     description: parsed.description || "",
     updateJson: parsed.updateJson || "",
+    moduleAbi: parsed.moduleAbi || "",
   };
 }
 

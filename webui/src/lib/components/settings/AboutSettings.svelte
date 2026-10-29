@@ -1,31 +1,27 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { Download, RefreshCw, ChevronRight, ScrollText, X } from "@lucide/svelte";
   import { fade, fly, scale } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import Select from "$lib/components/common/Select.svelte";
   import { useModalHistory } from "$lib/modal-history";
 
-  type UpdateSource = "current" | "release" | "nightly";
+  import { fetchUpdateChangelog, fetchUpdateInfo, getModuleAbi, getUpdateUrls, type UpdateInfo, type UpdateSource } from "$lib/api/module-update";
+
   type UpdateStatus = "idle" | "checking" | "ok" | "error";
 
-  interface UpdateInfo {
-    version: string;
-    versionCode: number;
-    zipUrl: string;
-    changelog?: string;
-  }
-
-  let { currentVersion, currentVersionCode, currentUpdateJson, onopen } = $props<{
+  let { currentVersion, currentVersionCode, currentUpdateJson, currentModuleAbi = "", moduleInfoLoading = false, moduleInfoError = "", onreloadmodule, onopen } = $props<{
     currentVersion: string;
     currentVersionCode: string;
     currentUpdateJson: string;
+    currentModuleAbi?: string;
+    moduleInfoLoading?: boolean;
+    moduleInfoError?: string;
+    onreloadmodule: () => void | Promise<void>;
     onopen: (url: string) => void | Promise<void>;
   }>();
 
   const STORAGE_KEY = "mono-box.update-source";
-  const NIGHTLY_UPDATE_JSON = "https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/download/Prerelease/update.json";
-  const FALLBACK_RELEASE_UPDATE_JSON = "https://cors.isteed.cc/https://github.com/LufsX/mono-box/releases/latest/download/update.json";
 
   let updateSource = $state<UpdateSource>("current");
   let updateStatus = $state<UpdateStatus>("idle");
@@ -37,6 +33,8 @@
   let changelogOpen = $state(false);
   let updateRequest = 0;
   let changelogRequest = 0;
+  let updateController: AbortController | undefined;
+  let changelogController: AbortController | undefined;
   const modalHistory = useModalHistory("about-changelog", () => {
     changelogOpen = false;
   });
@@ -47,14 +45,18 @@
     { value: "nightly", label: "每夜版" },
   ];
 
-  const sourceUrl = $derived(updateSource === "nightly" ? NIGHTLY_UPDATE_JSON : updateSource === "release" ? FALLBACK_RELEASE_UPDATE_JSON : currentUpdateJson || FALLBACK_RELEASE_UPDATE_JSON);
+  const sourceUrls = $derived(getUpdateUrls(updateSource, currentUpdateJson, currentModuleAbi));
+  const sourceUrl = $derived(sourceUrls[0]);
+  const installedAbi = $derived(getModuleAbi(currentUpdateJson, currentModuleAbi));
   const currentCode = $derived(Number.parseInt(currentVersionCode || "0", 10) || 0);
   const hasUpdate = $derived(updateInfo ? updateInfo.versionCode > currentCode : false);
-  const actionIsDownload = $derived(updateStatus === "ok" && hasUpdate && !!updateInfo?.zipUrl);
+  const actionIsDownload = $derived(!moduleInfoError && updateStatus === "ok" && hasUpdate && !!updateInfo?.zipUrl);
   const displayVersion = $derived(currentVersion || "-");
   const displayChangelog = $derived(changelogText.trim());
   const hasChangelogSource = $derived(!!updateInfo?.changelog?.trim());
   const displayMeta = $derived.by(() => {
+    if (moduleInfoLoading) return "正在读取模块信息";
+    if (moduleInfoError) return `读取模块信息失败: ${moduleInfoError}`;
     if (updateStatus === "checking") return "正在检查更新";
     if (updateStatus === "error") return updateError || "检查更新失败";
     if (updateStatus === "ok" && updateInfo) {
@@ -76,9 +78,19 @@
     }
   });
 
-  function saveUpdateSource(value: string) {
+  onDestroy(cancelRequests);
+
+  function cancelRequests() {
     updateRequest += 1;
     changelogRequest += 1;
+    updateController?.abort();
+    changelogController?.abort();
+    updateController = undefined;
+    changelogController = undefined;
+  }
+
+  function saveUpdateSource(value: string) {
+    cancelRequests();
     updateSource = value === "nightly" ? "nightly" : value === "release" ? "release" : "current";
     updateStatus = "idle";
     updateInfo = null;
@@ -95,31 +107,14 @@
     }
   }
 
-  function normalizeUpdateInfo(raw: unknown): UpdateInfo {
-    const data = raw as Partial<UpdateInfo>;
-    const versionCode = Number(data.versionCode);
-    const version = typeof data.version === "string" ? data.version : "";
-    const zipUrl = typeof data.zipUrl === "string" ? data.zipUrl : "";
-    const changelog = typeof data.changelog === "string" ? data.changelog : "";
-
-    if (!version || !Number.isFinite(versionCode) || !zipUrl) {
-      throw new Error("update.json 格式无效");
-    }
-
-    return {
-      version,
-      versionCode,
-      zipUrl,
-      changelog,
-    };
-  }
-
   function isHttpUrl(value: string): boolean {
     return /^https?:\/\//i.test(value);
   }
 
   async function loadChangelog(info: UpdateInfo) {
     const request = ++changelogRequest;
+    changelogController?.abort();
+    changelogController = undefined;
     const source = info.changelog?.trim() || "";
     changelogLoading = false;
     changelogError = "";
@@ -132,17 +127,11 @@
       return;
     }
 
+    const controller = new AbortController();
+    changelogController = controller;
     try {
       changelogLoading = true;
-      const response = await fetch(source, {
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        throw new Error(`请求失败: HTTP ${response.status}`);
-      }
-
-      const text = (await response.text()).trim();
+      const text = await fetchUpdateChangelog(source, controller.signal);
       if (request !== changelogRequest || updateInfo !== info) return;
       changelogText = text;
     } catch (e) {
@@ -150,6 +139,7 @@
       changelogError = e instanceof Error ? e.message : String(e);
     } finally {
       if (request === changelogRequest) changelogLoading = false;
+      if (changelogController === controller) changelogController = undefined;
     }
   }
 
@@ -168,7 +158,11 @@
   }
 
   async function checkUpdate() {
-    const request = ++updateRequest;
+    if (moduleInfoLoading || moduleInfoError) return;
+    cancelRequests();
+    const request = updateRequest;
+    const controller = new AbortController();
+    updateController = controller;
     try {
       updateStatus = "checking";
       updateError = "";
@@ -178,29 +172,28 @@
       changelogText = "";
       changelogOpen = false;
 
-      const response = await fetch(sourceUrl, {
-        cache: "no-store",
-      });
-
-      if (!response.ok) {
-        throw new Error(`请求失败: HTTP ${response.status}`);
-      }
-
-      const info = normalizeUpdateInfo(await response.json());
+      const info = await fetchUpdateInfo(sourceUrls, installedAbi, controller.signal);
       if (request !== updateRequest) return;
       updateInfo = info;
       updateStatus = "ok";
-      void loadChangelog(info);
+      void loadChangelog(updateInfo);
     } catch (e) {
       if (request !== updateRequest) return;
       updateError = e instanceof Error ? e.message : String(e);
       updateStatus = "error";
       changelogLoading = false;
       changelogOpen = false;
+    } finally {
+      if (updateController === controller) updateController = undefined;
     }
   }
 
   async function handleAction() {
+    if (moduleInfoLoading) return;
+    if (moduleInfoError) {
+      await onreloadmodule();
+      return;
+    }
     if (actionIsDownload && updateInfo?.zipUrl) {
       await onopen(updateInfo.zipUrl);
       return;
@@ -217,7 +210,7 @@
         Mono Box {displayVersion}
       </p>
       <p
-        class="mt-1 truncate text-xs {updateStatus === 'error' ? 'text-red-600 dark:text-red-400' : hasUpdate ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}"
+        class="mt-1 truncate text-xs {updateStatus === 'error' || moduleInfoError ? 'text-red-600 dark:text-red-400' : hasUpdate ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-slate-400'}"
         title={displayMeta}
       >
         {displayMeta}
@@ -246,20 +239,20 @@
       <button
         type="button"
         onclick={handleAction}
-        disabled={updateStatus === "checking"}
+        disabled={moduleInfoLoading || updateStatus === "checking"}
         class="group relative h-9 overflow-hidden shrink-0 whitespace-nowrap border text-sm font-bold transition-[width,background-color,border-color,color,opacity,transform] duration-300 outline-none disabled:opacity-70 text-center {actionIsDownload
           ? 'w-9 px-0 border-emerald-700 dark:border-emerald-400 bg-emerald-700 dark:bg-emerald-300 text-white dark:text-zinc-900 shadow-sm'
           : 'w-26 px-3 border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 hover:bg-slate-700 dark:hover:bg-slate-300 shadow-sm'} rounded-lg"
-        title={actionIsDownload ? "下载更新" : "检查更新"}
-        aria-label={actionIsDownload ? "下载更新" : "检查更新"}
+        title={actionIsDownload ? "下载更新" : moduleInfoError ? "重试读取模块信息" : "检查更新"}
+        aria-label={actionIsDownload ? "下载更新" : moduleInfoError ? "重试读取模块信息" : "检查更新"}
       >
         {#key actionIsDownload}
           <div class="flex h-full items-center justify-center gap-1.5 min-w-0" in:fly={{ x: actionIsDownload ? 8 : -8, duration: 160, easing: cubicOut }} out:fade={{ duration: 80 }}>
             {#if actionIsDownload}
               <Download size={15} class="shrink-0" />
             {:else}
-              <RefreshCw size={14} class="shrink-0 {updateStatus === 'checking' ? 'animate-spin' : ''}" />
-              <span class="truncate">{updateStatus === "checking" ? "正在检查" : "检查更新"}</span>
+              <RefreshCw size={14} class="shrink-0 {moduleInfoLoading || updateStatus === 'checking' ? 'animate-spin' : ''}" />
+              <span class="truncate">{moduleInfoLoading ? "正在读取" : moduleInfoError ? "重试" : updateStatus === "checking" ? "正在检查" : "检查更新"}</span>
             {/if}
           </div>
         {/key}

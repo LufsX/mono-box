@@ -38,6 +38,9 @@
   let currentVersion = $state("-");
   let currentVersionCode = $state("");
   let currentUpdateJson = $state("");
+  let currentModuleAbi = $state("");
+  let moduleInfoLoading = $state(true);
+  let moduleInfoError = $state("");
   let saveResetTimer: ReturnType<typeof setTimeout> | undefined;
   let homeLayout = $state(loadHomeLayoutSettings());
   let homeLayoutSaved = $state(false);
@@ -194,16 +197,23 @@
   }
 
   async function loadModuleInfo() {
+    moduleInfoLoading = true;
+    moduleInfoError = "";
     try {
       const info = await actionApi.getModuleInfo();
       currentVersion = info.version || "-";
       currentVersionCode = info.versionCode || "";
       currentUpdateJson = info.updateJson || "";
+      currentModuleAbi = info.moduleAbi || "";
     } catch (e) {
       console.error("Failed to load module info:", e);
+      moduleInfoError = (e instanceof Error ? e.message : String(e)) || "无法读取 module.prop";
       currentVersion = "-";
       currentVersionCode = "";
       currentUpdateJson = "";
+      currentModuleAbi = "";
+    } finally {
+      moduleInfoLoading = false;
     }
   }
 
@@ -278,6 +288,6 @@
   </CollapsibleSection>
 
   <CollapsibleSection title="关于" controls="about-settings" delay={80} bind:open={aboutOpen} onchange={(open) => saveSettingsSectionState({ about: open })}>
-    <AboutSettings {currentVersion} {currentVersionCode} {currentUpdateJson} onopen={openSupportLink} />
+    <AboutSettings {currentVersion} {currentVersionCode} {currentUpdateJson} {currentModuleAbi} {moduleInfoLoading} {moduleInfoError} onreloadmodule={loadModuleInfo} onopen={openSupportLink} />
   </CollapsibleSection>
 </div>
