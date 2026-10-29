@@ -76,6 +76,7 @@
   }
 
   async function fetchConnections(force = false) {
+    if (!mounted || (!force && document.hidden)) return;
     if (requestBusy) {
       refreshQueued = true;
       forceQueuedRefresh ||= force;
@@ -86,6 +87,7 @@
     requestBusy = true;
     try {
       const res = await clashApi.getConnections();
+      if (!mounted) return;
       const now = Date.now();
 
       const incoming = res.connections || [];
@@ -169,6 +171,7 @@
       hasLoaded = true;
       retryDelay = 1000;
     } catch (err: any) {
+      if (!mounted) return;
       const classified = classifyConnectionError(err);
       errorReason = classified.reason;
       error = classified.message;
@@ -182,16 +185,18 @@
         refreshQueued = false;
         const forceRefresh = forceQueuedRefresh;
         forceQueuedRefresh = false;
-        if (mounted && (forceRefresh || !document.hidden)) void fetchConnections(forceRefresh).finally(resolveRefreshWaiters);
-        else resolveRefreshWaiters();
+        const waiters = refreshWaiters.splice(0);
+        const resolveWaiters = () => { for (const resolve of waiters) resolve(); };
+        if (mounted && (forceRefresh || !document.hidden)) void fetchConnections(forceRefresh).finally(resolveWaiters);
+        else resolveWaiters();
       } else if (!error) {
         scheduleNextFetch(1000);
       }
     }
   }
 
-  function resolveRefreshWaiters() {
-    for (const resolve of refreshWaiters.splice(0)) resolve();
+  function resumePolling() {
+    if (!requestBusy && timer === undefined) scheduleNextFetch(error ? retryDelay : 1000);
   }
 
   function scheduleNextFetch(delay: number) {
@@ -212,6 +217,7 @@
     timer = undefined;
     try {
       await clashApi.deleteConnection(id);
+      if (!mounted) return;
       if (activeConnectionId === id) closeDetail();
       await fetchConnections(true);
       if (error) actionError = "连接已断开，但连接列表刷新失败";
@@ -221,6 +227,7 @@
       const next = new Set(closingConnectionIds);
       next.delete(id);
       closingConnectionIds = next;
+      resumePolling();
     }
   }
 
@@ -232,6 +239,7 @@
     timer = undefined;
     try {
       await clashApi.closeAllConnections();
+      if (!mounted) return;
       if (activeConnectionId) closeDetail();
       await fetchConnections(true);
       if (error) actionError = "连接已断开，但连接列表刷新失败";
@@ -239,6 +247,7 @@
       actionError = `关闭全部连接失败：${err instanceof Error ? err.message : String(err)}`;
     } finally {
       closingAll = false;
+      resumePolling();
     }
   }
 
