@@ -31,6 +31,13 @@
   let paused = $state(false);
   let streamState = $state<StreamState>("connecting");
   let streamError = $state("");
+  const streamMessages: Record<StreamState, string> = {
+    connecting: "Connecting to log stream...",
+    connected: "Waiting for logs...",
+    closed: "Log stream disconnected. Reconnecting...",
+    error: "Connection failed. Reconnecting...",
+  };
+  const emptyStreamMessage = $derived(paused ? "Log streaming paused" : streamMessages[streamState]);
   let logRows = $state<LogRow[]>([]);
   let logReport = $state<LogSizeReport>({ files: [], totalBytes: 0, count: 0 });
   let logFileLoading = $state(false);
@@ -574,7 +581,7 @@
 
       <div class="h-full overflow-y-auto p-3 custom-scrollbar" style="overflow-anchor: none" bind:this={logsContainer} onscroll={updateStickToTop}>
         {#if logRows.length === 0}
-          <div class="flex h-full items-center justify-center text-zinc-700" in:fade={{ duration: 160 }}>Waiting for logs...</div>
+          <div class="flex h-full items-center justify-center text-zinc-700" in:fade={{ duration: 160 }}>{emptyStreamMessage}</div>
         {:else if filteredLogRows.length === 0}
           <div class="flex h-full items-center justify-center text-zinc-700" in:fade={{ duration: 160 }}>无匹配日志</div>
         {:else}

@@ -1,8 +1,11 @@
 <script lang="ts">
-  let { onAction }: { onAction: (action: string) => void | Promise<void> } = $props();
+  import { LoaderCircle } from "@lucide/svelte";
 
-  let busy = $state(false);
-  let busyId = $state<string | null>(null);
+  let { onAction, activeAction = null, disabled = false }: {
+    onAction: (action: string) => void | Promise<void>;
+    activeAction?: string | null;
+    disabled?: boolean;
+  } = $props();
 
   const actions = [
     { id: "start", label: "启动" },
@@ -11,17 +14,6 @@
     { id: "status", label: "状态" },
   ];
 
-  async function handleAction(id: string) {
-    if (busy) return;
-    busy = true;
-    busyId = id;
-    try {
-      await onAction(id);
-    } finally {
-      busy = false;
-      busyId = null;
-    }
-  }
 </script>
 
 <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">
@@ -31,12 +23,13 @@
   <div class="p-4 grid grid-cols-2 sm:grid-cols-4 gap-3">
     {#each actions as action}
       <button
-        class="border border-slate-300 dark:border-zinc-700 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 active:bg-slate-200 dark:active:bg-zinc-700 transition-[transform,colors] duration-200 active:translate-y-px active:scale-[0.99] outline-none disabled:opacity-55 disabled:cursor-not-allowed
+        class="inline-flex items-center justify-center gap-2 border border-slate-300 dark:border-zinc-700 py-3 text-sm font-bold text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 active:bg-slate-200 dark:active:bg-zinc-700 transition-[transform,colors] duration-200 active:translate-y-px active:scale-[0.99] outline-none disabled:opacity-55 disabled:cursor-not-allowed
         rounded-lg"
-        onclick={() => handleAction(action.id)}
-        disabled={busy}
-        aria-busy={busyId === action.id}
+        onclick={() => onAction(action.id)}
+        disabled={disabled || activeAction !== null}
+        aria-busy={activeAction === action.id}
       >
+        {#if activeAction === action.id}<LoaderCircle size={14} class="animate-spin" />{/if}
         {action.label}
       </button>
     {/each}

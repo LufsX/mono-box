@@ -7,6 +7,7 @@
     showActions = false,
     retrying = false,
     starting = false,
+    disabled = false,
   }: {
     reason?: "unauthorized" | "unreachable";
     message?: string;
@@ -15,6 +16,7 @@
     showActions?: boolean;
     retrying?: boolean;
     starting?: boolean;
+    disabled?: boolean;
   } = $props();
 
   const title = $derived(reason === "unauthorized" ? "核心认证失败" : "核心连接异常");
@@ -40,7 +42,7 @@
           <button
             type="button"
             onclick={onStart}
-            disabled={starting}
+            disabled={disabled || starting}
             class="inline-flex items-center justify-center border border-amber-400 dark:border-amber-700 py-2.5 text-sm font-bold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors outline-none disabled:opacity-60 rounded-lg"
           >
             {starting ? "正在启动" : "启动服务"}
@@ -51,7 +53,7 @@
             <button
               type="button"
               onclick={onRetry}
-              disabled={retrying}
+              disabled={disabled || retrying}
               class="inline-flex items-center justify-center border border-amber-400 dark:border-amber-700 py-2.5 text-sm font-bold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors outline-none disabled:opacity-60 rounded-lg"
             >
               {retrying ? "正在重试" : "重试检测"}
@@ -62,7 +64,7 @@
               <button
                 type="button"
                 onclick={onStart}
-                disabled={starting}
+                disabled={disabled || starting}
                 class="inline-flex items-center justify-center border border-amber-400 dark:border-amber-700 py-2.5 text-sm font-bold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors outline-none disabled:opacity-60 rounded-lg"
               >
                 {starting ? "正在启动" : "启动服务"}

@@ -1,6 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { stores, actions } from "$lib/api";
+  import { stores } from "$lib/api";
 
   const configs = stores.configs;
   const versionCheck = stores.versionCheck;
@@ -19,7 +18,6 @@
 
   const version = $derived($versionCheck?.ok ? $versionCheck.version : "-");
 
-  onMount(() => actions.refreshVersion());
 </script>
 
 <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">

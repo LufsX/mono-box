@@ -6,8 +6,8 @@
   import { Activity, ArrowUpDown, ChevronRight, Clock3, RefreshCw, ArrowUpNarrowWide, Timer, X } from "@lucide/svelte";
   import Select from "$lib/components/common/Select.svelte";
   import ProxyNodeTile from "$lib/components/shared/ProxyNodeTile.svelte";
-  import { clashApi, stores, actions } from "$lib/api";
-  import type { ClashProxyMap, ClashProxyProviderMap, ProxyMode } from "$lib/api";
+  import { clashApi, stores } from "$lib/api";
+  import type { ClashProxyMap, ClashProxyProviderMap } from "$lib/api";
   import { classifyConnectionError } from "$lib/api/error-utils";
   import KernelAuthNotice from "$lib/components/shared/KernelAuthNotice.svelte";
   import NoticeBanner from "$lib/components/common/NoticeBanner.svelte";
@@ -206,8 +206,10 @@
 
   let loadSequence = 0;
   let disposed = false;
+  let mutationInFlight = false;
 
   async function loadData(background = false) {
+    if (disposed || mutationInFlight) return;
     const sequence = ++loadSequence;
     const revision = testState.revision;
     try {
@@ -217,7 +219,10 @@
       proxies = syncRecord(proxies, proxyData);
       proxyDetails = syncRecord(proxyDetails, buildProxyDetailMap(proxyData, providerData));
       providers = syncRecord(providers, providerData);
-      if (configData?.mode && !switchingMode) modeSelectValue = configData.mode as ClashMode;
+      if (configData?.mode) {
+        currentMode.set(configData.mode as ClashMode);
+        modeSelectValue = configData.mode as ClashMode;
+      }
       testState = seedProxyTestState(testState, proxyData, providerData, revision);
       proxyTestUrl = resolveProxyTestUrl(loadHomeLayoutSettings().proxyTestUrl.trim(), configData);
     } catch (e) {
@@ -249,37 +254,44 @@
   }
 
   async function switchMode(mode: ClashMode) {
-    if (mode === $currentMode || switchingMode) return;
+    modeSelectValue = $currentMode;
+    if (disposed || mode === $currentMode || switchingMode || selectingGroup || updatingProvider) return;
     switchingMode = true;
+    mutationInFlight = true;
+    loadSequence++;
     try {
       error = "";
       errorReason = "";
-      await actions.switchClashMode(mode as ProxyMode);
-      modeSelectValue = mode;
+      await clashApi.setMode(mode);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       errorReason = "";
       error = `切换模式失败: ${message}`;
       modeSelectValue = $currentMode;
     } finally {
+      mutationInFlight = false;
+      await loadData(true);
       switchingMode = false;
     }
   }
 
   async function selectNode(groupName: string, nodeName: string) {
     const group = proxies?.[groupName];
-    if (!group || group.type !== "Selector" || group.now === nodeName || selectingGroup) return;
+    if (disposed || !group || group.type !== "Selector" || group.now === nodeName || selectingGroup || switchingMode || updatingProvider) return;
     selectingGroup = groupName;
+    mutationInFlight = true;
+    loadSequence++;
     try {
       error = "";
       errorReason = "";
       await clashApi.setOutbound(groupName, nodeName);
-      proxies = proxies ? { ...proxies, [groupName]: { ...group, now: nodeName } } : proxies;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       errorReason = "";
       error = `切换策略失败: ${message}`;
     } finally {
+      mutationInFlight = false;
+      await loadData(true);
       selectingGroup = null;
     }
   }
@@ -408,18 +420,21 @@
 
   async function updateProvider(event: MouseEvent, name: string) {
     event.stopPropagation();
-    if (updatingProvider || switchingMode || selectingGroup || targetsAreTesting(providerTargets(name)) || Object.keys(testingOwners).length > 0) return;
+    if (disposed || updatingProvider || switchingMode || selectingGroup || targetsAreTesting(providerTargets(name)) || Object.keys(testingOwners).length > 0) return;
     updatingProvider = name;
+    mutationInFlight = true;
+    loadSequence++;
     try {
       error = "";
       errorReason = "";
       await clashApi.updateProxyProvider(name);
-      await loadData();
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       errorReason = "";
       error = `更新 Provider 失败: ${message}`;
     } finally {
+      mutationInFlight = false;
+      await loadData(true);
       updatingProvider = null;
     }
   }
@@ -487,7 +502,7 @@
     <section in:fly={{ y: 10, duration: 220, easing: cubicOut }} class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 p-3 transition-colors rounded-xl">
       <div class="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-center">
         <div class="max-w-40">
-          <Select id="proxy-mode" options={modeOptions} bind:value={modeSelectValue} disabled={loading || switchingMode} onchange={(value) => switchMode(value as ClashMode)} />
+          <Select id="proxy-mode" options={modeOptions} bind:value={modeSelectValue} disabled={loading || switchingMode || selectingGroup !== null || updatingProvider !== null} onchange={(value) => switchMode(value as ClashMode)} />
         </div>
         <div class="flex font-bold text-sm">
           <button
@@ -642,7 +657,7 @@
                               class="inline-flex items-center justify-center w-7 h-7 border border-slate-300 dark:border-zinc-700 text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors disabled:opacity-60
                             rounded-lg"
                               onclick={(event) => updateProvider(event, name)}
-                              disabled={providerIsBusy(name) || Object.keys(testingOwners).length > 0}
+                              disabled={providerIsBusy(name) || Object.keys(testingOwners).length > 0 || updatingProvider !== null || switchingMode || selectingGroup !== null}
                               title="更新 Provider"
                             >
                               <RefreshCw size={14} class={updatingProvider === name ? "animate-spin" : ""} />
@@ -766,7 +781,7 @@
                 type={node.type}
                 latency={readNodeLatency(node.name)}
                 selected={!!selected}
-                selectable={group?.type === "Selector" && !selectingGroup}
+                selectable={group?.type === "Selector" && !selectingGroup && !switchingMode && !updatingProvider}
                 testing={nodeTesting}
                 failed={nodeFailed(node.name)}
                 testable={Boolean(target.apiName)}

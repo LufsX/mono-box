@@ -1,14 +1,15 @@
 <script lang="ts">
   import { stores, actions } from "$lib/api";
+  import type { LogType } from "$lib/terminal";
 
-  let { onLog }: { onLog?: (msg: string, type?: "info" | "success" | "error" | "cmd") => void } = $props();
+  let { onLog, disabled = false }: { onLog?: (msg: string, type?: LogType) => void; disabled?: boolean } = $props();
 
   const currentMode = stores.currentMode;
   const modes = ["rule", "global", "direct"];
   let switchingMode = $state<string | null>(null);
 
   async function handleSwitch(newMode: string) {
-    if (newMode === $currentMode || switchingMode !== null) return;
+    if (disabled || newMode === $currentMode || switchingMode !== null) return;
     switchingMode = newMode;
     onLog?.(`> Switching proxy mode to ${newMode}...`, "cmd");
     try {
@@ -35,7 +36,7 @@
             ? 'border-slate-800 dark:border-slate-300 bg-slate-800 dark:bg-slate-200 text-white dark:text-zinc-900 z-10 shadow-sm'
             : 'border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-950 text-slate-500 hover:bg-slate-100 dark:hover:bg-zinc-800 z-0'}"
           onclick={() => handleSwitch(m)}
-          disabled={switchingMode !== null}
+          disabled={disabled || switchingMode !== null}
           aria-busy={switchingMode === m}
         >
           {m.toUpperCase()}

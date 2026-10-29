@@ -3,8 +3,7 @@
   import { cubicOut } from "svelte/easing";
   import { flip } from "svelte/animate";
   import { fly } from "svelte/transition";
-  import { clashApi, actionApi, parseBoxConfig, getBoxConfigRaw, actions as clashActions } from "$lib/api";
-  import type { CoreStatusResult } from "$lib/api";
+  import { actionApi, parseBoxConfig, getBoxConfigRaw, stores, actions as clashActions } from "$lib/api";
   import CoreInfo from "$lib/components/home/CoreInfo.svelte";
   import TunControl from "$lib/components/home/TunControl.svelte";
   import ServiceActions from "$lib/components/home/ServiceActions.svelte";
@@ -15,26 +14,27 @@
   import { ExternalLink } from "@lucide/svelte";
   import { loadHomeLayoutSettings, type HomeModuleId } from "$lib/settings";
   import { isCoreBackedHomeModule } from "$lib/app-registry";
+  import { formatTerminalLine, type LogEntry, type LogType } from "$lib/terminal";
 
-  let coreStatus = $state<CoreStatusResult | null>(null);
-  let startingFromNotice = $state(false);
+  const coreStatus = stores.coreStatus;
+  let activeAction = $state<string | null>(null);
+  let refreshing = $state(true);
+  const busy = $derived(activeAction !== null || refreshing);
   let homeLayout = $state(loadHomeLayoutSettings());
   let defaultPanelUrl = $state("http://127.0.0.1:9090/ui");
 
-  type LogType = "info" | "success" | "error" | "cmd";
-  let logs = $state<{ time: string; msg: string; type: LogType }[]>([]);
+  let logs = $state<LogEntry[]>([]);
 
   function addLog(msg: string, type: LogType = "info") {
     if (!msg) return;
     const time = new Date().toLocaleTimeString("en-US", { hour12: false });
     const lines = msg.split("\n").filter((line) => line.trim() !== "");
     lines.forEach((line) => {
-      logs.push({ time, msg: line, type });
+      logs.push({ time, ...formatTerminalLine(line, type) });
     });
     if (logs.length > 200) {
       logs.splice(0, logs.length - 200);
     }
-    logs = logs;
   }
 
   function moduleEnter(index: number) {
@@ -47,38 +47,26 @@
   }
 
   async function execute(actionCmd: string) {
-    addLog(`> /data/adb/modules/mono_box/action.sh ${actionCmd}`, "cmd");
-    addLog("[Executing] Waiting for KernelSU to return results...", "info");
+    addLog(`> ${actionCmd}`, "cmd");
 
     const startedAt = Date.now();
 
     try {
+      const streamed = new Set<"stdout" | "stderr">();
       const result = await actionApi.runActionScript(actionCmd, (line, stream) => {
-        addLog(line, stream === "stderr" ? "error" : "info");
+        streamed.add(stream);
+        addLog(line, stream === "stderr" ? "warning" : "info");
       });
-      const elapsedMs = Date.now() - startedAt;
-
-      const raw = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+      if (!streamed.has("stdout")) addLog(result.stdout);
+      if (!streamed.has("stderr")) addLog(result.stderr, "warning");
       const isError = result.errno !== 0;
 
       addLog(isError ? `[Action] Failed (errno=${result.errno})` : "[Action] Completed", isError ? "error" : "success");
-      addLog(`[Info] Execution time: ${elapsedMs} ms`, "info");
-
-      return { success: !isError, errno: result.errno, raw };
     } catch (e: unknown) {
-      const elapsedMs = Date.now() - startedAt;
       const errMsg = e instanceof Error ? e.message : String(e);
       addLog(errMsg, "error");
-      addLog(`[Info] Execution time: ${elapsedMs} ms`, "info");
-      return { success: false, errno: -1, raw: errMsg };
-    }
-  }
-
-  async function checkCoreStatus() {
-    try {
-      coreStatus = await clashApi.checkStatus();
-    } catch {
-      coreStatus = { ok: false, reason: "unreachable", message: "检查核心状态时发生异常" };
+    } finally {
+      addLog(`[Info] Execution time: ${Date.now() - startedAt} ms`, "info");
     }
   }
 
@@ -92,27 +80,19 @@
     }
   }
 
-  function isModuleVisible(moduleId: HomeModuleId): boolean {
-    return !homeLayout.hiddenModules.includes(moduleId);
-  }
-
   function isModuleRenderable(moduleId: HomeModuleId): boolean {
-    if (!isModuleVisible(moduleId)) return false;
+    if (homeLayout.hiddenModules.includes(moduleId)) return false;
 
     if (isCoreBackedHomeModule(moduleId)) {
-      return coreStatus?.ok !== false;
+      return $coreStatus?.ok === true;
     }
 
     return true;
   }
 
-  function getPanelUrl(): string {
-    return homeLayout.panelUrl.trim() || defaultPanelUrl;
-  }
-
   async function openPanel() {
-    const url = getPanelUrl();
-    addLog(`Opening panel: ${url}`, "cmd");
+    const url = homeLayout.panelUrl.trim() || defaultPanelUrl;
+    addLog(`> Opening panel: ${url}`, "cmd");
     try {
       await actionApi.openExternalUrl(url);
     } catch (e: unknown) {
@@ -120,32 +100,31 @@
     }
   }
 
+  async function refreshCore() {
+    const status = await clashActions.refreshConfigs();
+    if (status.ok) await clashActions.refreshVersion();
+  }
+
   async function handleRefresh() {
+    if (busy) return;
+    refreshing = true;
     addLog("[Core] Refreshing status...", "info");
-    await checkCoreStatus();
-    if (coreStatus?.ok) {
-      addLog("[Core] Status refreshed", "success");
-    } else {
-      addLog(`[Core] ${coreStatus?.message || "Status check failed"}`, "error");
+    try {
+      await refreshCore();
+      addLog($coreStatus?.ok ? "[Core] Status refreshed" : $coreStatus?.message || "Status check failed", $coreStatus?.ok ? "success" : "warning");
+    } finally {
+      refreshing = false;
     }
   }
 
   async function runAction(action: string) {
-    const result = await execute(action);
-    if (!result.success) return;
-
-    if (["start", "restart", "stop"].includes(action)) {
-      await checkCoreStatus();
-    }
-  }
-
-  async function handleStartFromNotice() {
-    if (startingFromNotice) return;
-    startingFromNotice = true;
+    if (busy) return;
+    activeAction = action;
     try {
-      await runAction("start");
+      await execute(action);
+      await refreshCore();
     } finally {
-      startingFromNotice = false;
+      activeAction = null;
     }
   }
 
@@ -155,36 +134,35 @@
         addLog("[WebUI] Initializing WebUI...", "info");
         const startTime = Date.now();
         homeLayout = loadHomeLayoutSettings();
-        await loadPanelDefaultUrl();
-
-        await checkCoreStatus();
-        clashActions.refreshConfigs();
+        await Promise.all([loadPanelDefaultUrl(), refreshCore()]);
         const elapsedMs = Date.now() - startTime;
         addLog(`[WebUI] WebUI initialized with ${elapsedMs} ms`, "success");
       } catch (e) {
-        console.error("Initialization error:", e);
+        addLog(`[WebUI] Initialization failed: ${e instanceof Error ? e.message : String(e)}`, "error");
+      } finally {
+        refreshing = false;
       }
     })();
   });
 </script>
 
 <main class="relative max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
-  {#if coreStatus && !coreStatus.ok}
+  {#if $coreStatus && !$coreStatus.ok}
     <div in:fly={{ y: 16, duration: 260, easing: cubicOut }}>
-      <KernelAuthNotice reason={coreStatus.reason} onRetry={handleRefresh} onStart={handleStartFromNotice} starting={startingFromNotice} showActions={true} />
+      <KernelAuthNotice reason={$coreStatus.reason} message={$coreStatus.message} onRetry={handleRefresh} onStart={() => runAction("start")} starting={activeAction === "start"} retrying={refreshing} disabled={busy} showActions={true} />
     </div>
   {/if}
 
   {#each homeLayout.moduleOrder.filter(isModuleRenderable) as moduleId, index (moduleId)}
     <div in:fly={moduleEnter(index)} animate:flip={{ duration: 180, easing: cubicOut }}>
       {#if moduleId === "tun"}
-        <TunControl onLog={addLog} />
+        <TunControl onLog={addLog} disabled={busy} />
       {:else if moduleId === "proxy"}
-        <ProxyMode onLog={addLog} />
+        <ProxyMode onLog={addLog} disabled={busy} />
       {:else if moduleId === "stats"}
         <SystemStats />
       {:else if moduleId === "service"}
-        <ServiceActions onAction={runAction} />
+        <ServiceActions onAction={runAction} {activeAction} disabled={refreshing} />
       {:else if moduleId === "panel"}
         <section class="bg-white dark:bg-zinc-900 border border-slate-300 dark:border-zinc-700 transition-colors rounded-xl">
           <div class="px-4 py-3 border-b border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 rounded-t-xl">

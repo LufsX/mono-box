@@ -1,4 +1,5 @@
 import { writable } from "svelte/store";
+import { classifyConnectionError } from "./error-utils";
 import type { ClashApiPort } from "./clash.types";
 import type { CoreStatusResult, ClashProxyMap, ClashProxyProviderMap, ClashRuleProviderMap, ClashRulesResponse, ClashConfigs, ClashVersionCheckResult, ProxyMode } from "./clash.types";
 
@@ -11,26 +12,41 @@ export function createClashStores(clashApi: ClashApiPort) {
   const rules = writable<ClashRulesResponse | null>(null);
   const configs = writable<ClashConfigs | null>(null);
   const versionCheck = writable<ClashVersionCheckResult | null>(null);
+  let configSequence = 0;
+  let versionSequence = 0;
 
   async function refreshCoreStatus() {
-    coreStatus.set(await clashApi.checkStatus());
+    return refreshConfigs();
   }
 
   async function refreshConfigs() {
+    const sequence = ++configSequence;
     try {
       const configData = await clashApi.getConfigs();
-      configs.set(configData);
-      if (configData?.mode) currentMode.set(configData.mode as ProxyMode);
-    } catch {
-      configs.set(null);
+      const status: CoreStatusResult = { ok: true };
+      if (sequence === configSequence) {
+        configs.set(configData);
+        if (configData?.mode) currentMode.set(configData.mode as ProxyMode);
+        coreStatus.set(status);
+      }
+      return status;
+    } catch (error) {
+      const status = classifyConnectionError(error);
+      if (sequence === configSequence) {
+        configs.set(null);
+        coreStatus.set(status);
+      }
+      return status;
     }
   }
 
   async function refreshVersion() {
+    const sequence = ++versionSequence;
     try {
-      versionCheck.set(await clashApi.checkVersion());
+      const version = await clashApi.checkVersion();
+      if (sequence === versionSequence) versionCheck.set(version);
     } catch {
-      versionCheck.set(null);
+      if (sequence === versionSequence) versionCheck.set(null);
     }
   }
 
