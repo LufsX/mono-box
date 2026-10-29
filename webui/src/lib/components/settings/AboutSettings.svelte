@@ -4,6 +4,7 @@
   import { fade, fly, scale } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import Select from "$lib/components/common/Select.svelte";
+  import Markdown from "$lib/components/common/Markdown.svelte";
   import { useModalHistory } from "$lib/modal-history";
 
   import { fetchUpdateChangelog, fetchUpdateInfo, getModuleAbi, getUpdateUrls, type UpdateInfo, type UpdateSource } from "$lib/api/module-update";
@@ -294,7 +295,7 @@
       if (event.target === event.currentTarget) closeChangelog();
     }}
     onkeydown={(event) => {
-      if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+      if (event.key === "Escape" || (event.target === event.currentTarget && (event.key === "Enter" || event.key === " "))) {
         event.preventDefault();
         closeChangelog();
       }
@@ -333,7 +334,7 @@
                 无法加载更新日志: {changelogError}
               </div>
             {:else if displayChangelog}
-              <pre class="whitespace-pre-wrap wrap-break-word font-mono text-xs leading-relaxed text-slate-700 dark:text-zinc-300">{displayChangelog}</pre>
+              <Markdown source={changelogText} baseUrl={isHttpUrl(updateInfo?.changelog || "") ? updateInfo?.changelog : undefined} {onopen} />
             {:else}
               <div class="py-12 text-center text-sm text-slate-500 dark:text-zinc-400">暂无更新日志</div>
             {/if}

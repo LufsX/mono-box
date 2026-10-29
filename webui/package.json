@@ -26,6 +26,8 @@
   },
   "dependencies": {
     "@lucide/svelte": "1.47.0",
-    "kernelsu": "3.0.2"
+    "entities": "8.1.0",
+    "kernelsu": "3.0.2",
+    "marked": "18.1.2"
   }
 }
