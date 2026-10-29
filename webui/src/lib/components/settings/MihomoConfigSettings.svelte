@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import { flip } from "svelte/animate";
   import { cubicOut, quintOut } from "svelte/easing";
   import { fade, fly, slide } from "svelte/transition";
@@ -66,11 +66,11 @@
   const addModalHistory = useModalHistory("mihomo-config-add", resetAddModal);
   const actionModalHistory = useModalHistory("mihomo-config-action", resetActionModal);
 
-  onMount(() => {
-    void loadConfigs();
-  });
+  let destroyed = false;
 
   onDestroy(() => {
+    destroyed = true;
+    cancelModalExitWork();
     if (bannerResetTimer) clearTimeout(bannerResetTimer);
   });
 
@@ -164,19 +164,29 @@
     if (!found) configs = [...configs, next];
   }
 
-  async function loadConfigs() {
-    if (loading || busyKey) return;
+  export async function loadConfigs(forExpansion = false) {
+    if (destroyed) return;
+    if (loading || busyKey) {
+      if (forExpansion) throw new Error("配置操作尚未完成，请稍后重试");
+      return;
+    }
     try {
       loading = true;
       loadError = "";
       clearErrorBanner();
-      configs = await actionApi.listMihomoConfigFiles();
+      const nextConfigs = await actionApi.listMihomoConfigFiles();
+      if (destroyed) return;
+      configs = nextConfigs;
     } catch (error) {
-      loadError = getErrorMessage(error);
+      if (destroyed) return;
+      loadError = getErrorMessage(error) || "未知错误";
+      if (forExpansion) throw new Error(`读取配置失败：${loadError}`);
       if (configs.length > 0) setFailure(`读取配置失败：${loadError}`);
     } finally {
-      loading = false;
-      loaded = true;
+      if (!destroyed) {
+        loading = false;
+        loaded = true;
+      }
     }
   }
 
@@ -449,7 +459,7 @@
       {/if}
       <button
         type="button"
-        onclick={loadConfigs}
+        onclick={() => loadConfigs()}
         disabled={busy}
         class="inline-flex h-8 w-8 items-center justify-center border border-slate-300 bg-white text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-wait disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-slate-200 dark:hover:bg-zinc-900 rounded-lg"
         aria-label="刷新配置列表"
@@ -533,7 +543,7 @@
       {:else if configViewState === "error"}
         <div class="col-start-1 row-start-1 border border-red-300 bg-red-50 px-3 py-6 text-center text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300 rounded-lg">
           <p class="m-0">读取配置失败：{loadError}</p>
-          <button type="button" class="mt-3 underline underline-offset-2" onclick={loadConfigs}>重试</button>
+          <button type="button" class="mt-3 underline underline-offset-2" onclick={() => loadConfigs()}>重试</button>
         </div>
       {:else}
         <div class="col-start-1 row-start-1 min-w-0 space-y-2">

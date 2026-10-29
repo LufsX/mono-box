@@ -52,7 +52,9 @@
   let homeLayoutError = $state("");
   let homeLayoutSaveResetTimer: ReturnType<typeof setTimeout> | undefined;
   let homeLayoutResetStateTimer: ReturnType<typeof setTimeout> | undefined;
-  let mihomoConfigOpen = $state(initialSettingsSectionState.mihomoConfig);
+  let mihomoConfigOpen = $state(false);
+  let mihomoConfigSection: CollapsibleSection | undefined;
+  let mihomoConfigSettings: MihomoConfigSettings | undefined;
   let automationOpen = $state(initialSettingsSectionState.automation);
   let boxConfigOpen = $state(initialSettingsSectionState.boxConfig);
   let webUiSettingsOpen = $state(initialSettingsSectionState.webUi);
@@ -113,6 +115,7 @@
   }
 
   onMount(() => {
+    if (initialSettingsSectionState.mihomoConfig) void mihomoConfigSection?.expand();
     loadBoxConfig();
     loadModuleInfo();
   });
@@ -123,6 +126,11 @@
     if (homeLayoutResetStateTimer) clearTimeout(homeLayoutResetStateTimer);
     if (clashApiCheckResetTimer) clearTimeout(clashApiCheckResetTimer);
   });
+
+  async function loadMihomoConfigs() {
+    if (!mihomoConfigSettings) throw new Error("配置管理尚未就绪，请重试");
+    await mihomoConfigSettings.loadConfigs(true);
+  }
 
   function triggerSavedState() {
     boxConfigSaved = true;
@@ -282,8 +290,8 @@
 </script>
 
 <div class="max-w-3xl mx-auto px-4 py-6 min-h-full flex flex-col gap-6">
-  <CollapsibleSection title="Mihomo 配置管理" controls="mihomo-config-settings" bind:open={mihomoConfigOpen} onchange={(open) => saveSettingsSectionState({ mihomoConfig: open })}>
-    <MihomoConfigSettings />
+  <CollapsibleSection bind:this={mihomoConfigSection} title="Mihomo 配置管理" controls="mihomo-config-settings" keepMounted beforeopen={loadMihomoConfigs} bind:open={mihomoConfigOpen} onchange={(open) => saveSettingsSectionState({ mihomoConfig: open })}>
+    <MihomoConfigSettings bind:this={mihomoConfigSettings} />
   </CollapsibleSection>
 
   <CollapsibleSection title="自动化" controls="automation-settings" bind:open={automationOpen} onchange={(open) => saveSettingsSectionState({ automation: open })}>
