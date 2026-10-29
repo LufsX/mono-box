@@ -63,8 +63,8 @@ var downloadAdvancedAMD64 = regexp.MustCompile(`(^|[^a-z0-9])(amd64|x86_64)[-_]v
 var downloadForeignOS = regexp.MustCompile(`(^|[^a-z0-9])(windows|darwin|macos|freebsd|openbsd|netbsd|ios)([^a-z0-9]|$)`)
 var downloadAssetHref = regexp.MustCompile(`(?i)\bhref\s*=\s*["']([^"'<>]+)["']`)
 
-// DownloadCore installs a verified core at Root/bin/mihomo. It shares the service
-// lock so a service start cannot race the final running-process check and rename.
+// DownloadCore serializes downloads separately from service operations. Preparation
+// and commit hold service.lock; HTTP and extraction leave the core free to start.
 func (r *Runtime) DownloadCore(kind string, overwrite bool, proxy bool, abi string) error {
 	if kind != "mihomo" && kind != "mihomo_smart" {
 		return fmt.Errorf("unsupported core kind %q", kind)
@@ -72,72 +72,25 @@ func (r *Runtime) DownloadCore(kind string, overwrite bool, proxy bool, abi stri
 	if r.Root == "" {
 		return errors.New("empty runtime root")
 	}
-	root, err := filepath.Abs(r.Root)
+	d, err := newCoreDownload(r.Root)
 	if err != nil {
 		return err
 	}
-	root, err = filepath.EvalSymlinks(root)
+	defer d.close()
+	arch, skip, err := d.prepare(overwrite, abi)
 	if err != nil {
 		return err
 	}
-	lock, err := base.AcquireServiceLock(filepath.Join(root, "run"), base.ServiceLockTimeout)
-	if err != nil {
-		return fmt.Errorf("download core lock: %w", err)
-	}
-	defer lock.Close()
-	dir, err := base.OpenDirectory(filepath.Join(root, "bin"), true)
-	if err != nil {
-		return err
-	}
-	defer dir.Close()
-	// Keep every write, including the rename, anchored to this directory.
-	bin := filepath.Join("/proc/self/fd", strconv.Itoa(int(dir.Fd())))
-	target := filepath.Join(bin, "mihomo")
-	info, err := os.Lstat(target)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if err == nil {
-		if !info.Mode().IsRegular() {
-			return errors.New("core target is not a regular file")
-		}
-		if info.Size() > 0 && !overwrite {
-			r.downloadMessage("Core already exists, skip download")
-			return nil
-		}
-	}
-	// Linux refuses a writable handle for an executing inode (ETXTBSY).
-	// Retain this handle until commit to also prevent an external exec racing
-	// our procfs checks; no bytes in the installed core are changed.
-	old, err := base.OpenRegularAt(dir, "mihomo", os.O_WRONLY, 0)
-	if errors.Is(err, syscall.ETXTBSY) {
-		return errors.New("core is running; stop it before overwrite")
-	}
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if old != nil {
-		defer old.Close()
-	}
-	arch, err := downloadResolveABI(abi)
-	if err != nil {
-		return err
-	}
-	corePath := filepath.Join(root, "bin", "mihomo")
-	if err := downloadCheckStopped(corePath); err != nil {
-		return err
+	if skip {
+		r.downloadMessage("Core already exists, skip download")
+		return nil
 	}
 	r.downloadMessage("Downloading %s; Device ABI: %s", kind, arch.abi)
 	asset, err := r.downloadFindAsset(kind, proxy, arch)
 	if err != nil {
 		return err
 	}
-	work, err := os.MkdirTemp(bin, ".monobox-download-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(work)
-	archive, err := os.OpenFile(filepath.Join(work, "asset"), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	archive, err := base.OpenRegularAt(d.work, "asset", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
@@ -147,7 +100,7 @@ func (r *Runtime) DownloadCore(kind string, overwrite bool, proxy bool, abi stri
 	if err := r.downloadGet(source, archive, downloadAssetLimit, 5*time.Minute); err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
-	staged, err := os.OpenFile(filepath.Join(work, "core"), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	staged, err := base.OpenRegularAt(d.work, "core", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
 	if err != nil {
 		return err
 	}
@@ -164,18 +117,17 @@ func (r *Runtime) DownloadCore(kind string, overwrite bool, proxy bool, abi stri
 	if err := staged.Sync(); err != nil {
 		return err
 	}
+	stagedInfo, err := staged.Stat()
+	if err != nil {
+		return err
+	}
 	if err := staged.Close(); err != nil {
 		return err
 	}
-	// Repeat after network and extraction, including manually launched cores
-	// without a service PID file. Never signal or stop any process.
-	if err := downloadCheckStopped(corePath); err != nil {
+	if err := d.commit(overwrite, stagedInfo); err != nil {
 		return err
 	}
-	if err := os.Rename(staged.Name(), target); err != nil {
-		return err
-	}
-	r.downloadMessage("Installed %s to %s", kind, corePath)
+	r.downloadMessage("Installed %s to %s", kind, filepath.Join(d.root, "bin", "mihomo"))
 	return nil
 }
 
