@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 512 512" fill="none">
+  <title>Mono Box</title>
+  <defs>
+    <linearGradient id="surface" x1="64" y1="24" x2="454" y2="506" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4FBF7"/>
+      <stop offset="1" stop-color="#DCEDE9"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="192" y1="160" x2="334" y2="334" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#42999A"/>
+      <stop offset="1" stop-color="#267382"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="224" y1="108" x2="285" y2="149" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#75D6B1"/>
+      <stop offset="1" stop-color="#46B99D"/>
+    </linearGradient>
+    <linearGradient id="base" x1="218" y1="354" x2="294" y2="404" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6BCBAB"/>
+      <stop offset="1" stop-color="#3AAA98"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#surface)"/>
+  <path d="m220 126 32-18q4-2 8 0l32 18q4 2 0 4l-32 18q-4 2-8 0l-32-18q-4-2 0-4Z" fill="url(#mint)"/>
+  <path d="m125 183 55-27q4-2 8 0l68 35 68-35q4-2 8 0l55 27q5 3 5 9v127q0 6-5 9l-51 25q-8 5-8-4v-99l-68 35q-4 2-8 0l-68-35v99q0 9-8 4l-51-25q-5-3-5-9V192q0-6 5-9Z" fill="url(#fold)"/>
+  <path d="m124 184 60 30v135q0 9-8 4l-51-25q-5-3-5-9V192q0-5 4-8Z" fill="#33898D"/>
+  <path d="m388 184-60 30v135q0 9 8 4l51-25q5-3 5-9V192q0-5-4-8Z" fill="#286E7E"/>
+  <path d="m128 187 56 28 72 37 72-37 56-28" stroke="#F4FFFC" stroke-opacity=".2" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m222 358 30 17q4 2 8 0l30-17q6-3 6 4v24q0 5-4 7l-32 19q-4 2-8 0l-32-19q-4-2-4-7v-24q0-7 6-4Z" fill="url(#base)"/>
+</svg>

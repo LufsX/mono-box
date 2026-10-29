@@ -3,3 +3,5 @@ name=Mono Box
 version=v6.5
 author=LufsX, CHIZI-0618
 description=Use mihomo on Android devices.
+actionIcon=icon.png
+webuiIcon=icon.png
