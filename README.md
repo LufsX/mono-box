@@ -49,11 +49,14 @@ Mono Box provides WEB UI management panel for convenient control. Key features i
 1. Download the latest module from Releases:
    https://github.com/LufsX/mono-box/releases
 2. Install ZIP via Magisk Manager, KernelSU Manager, or APatch Manager.
-3. The module supports online update metadata.
+3. Install the package matching your device ABI. Online updates use the same architecture and release channel.
 
 Package naming:
 
-- MonoBox_vX.Y.zip
+- MonoBox_vX.Y_arm64-v8a.zip
+- MonoBox_vX.Y_armeabi-v7a.zip
+- MonoBox_vX.Y_x86_64.zip
+- MonoBox_vX.Y_x86.zip
 
 ## Core Placement
 
@@ -65,9 +68,12 @@ If you place one manually, put executable `mihomo` into:
 
 ## Runtime Structure
 
+The Go controller `monobox` resides in the module directory and is replaced with module updates; `/data/adb/box/` holds the core and runtime data. It manages services, network policies, configuration profiles, downloads and logs. Source builds require Go 1.24 or newer, Node.js, pnpm and UPX. The default build produces an arm64 package; `--arch arm64,arm,amd64,386` selects architectures, and `--arch all` produces four separate packages. Each package contains one UPX-compressed native controller and uses its own `update-<ABI>.json`. Release and prerelease workflows build all four packages.
+
 Main paths:
 
 - /data/adb/box/
+- /data/adb/modules/mono_box/bin/monobox
 - /data/adb/box/scripts/box.config
 - /data/adb/box/scripts/box.service
 - /data/adb/box/scripts/box.controller
@@ -75,7 +81,7 @@ Main paths:
 
 Service entry:
 
-- /data/adb/service.d/box_service.sh
+- /data/adb/modules/mono_box/service.sh
 
 ## Key Configuration
 
@@ -97,6 +103,7 @@ Notes:
 
 - tun/selector/mode rely on Clash API exposed by your running core config.
 - If Clash API is disabled in core config, policy linkage features will not work.
+- `box.config` accepts literal shell assignments and comments; values are read without shell execution. Upgrades preserve this file.
 
 ## Usage
 
@@ -133,7 +140,7 @@ Or:
 ## Uninstall
 
 - Uninstall module from Magisk / KernelSU / APatch manager.
-- /data/adb/service.d/box_service.sh will be removed by uninstall script.
+- The controller and core are stopped; the manager removes the module directory.
 - /data/adb/box data is kept by default.
 
 To remove data manually:

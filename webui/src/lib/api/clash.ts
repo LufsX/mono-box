@@ -1,5 +1,5 @@
 import type { ConfigPort } from "./config-port";
-import { runCommand } from "../bridge";
+import { runNativeCommand, toBase64Utf8 } from "./native";
 import { loadStoredClashConfig, saveStoredClashConfig } from "./clash-config-storage";
 import { parseBoxConfig } from "./config-parser";
 import { getErrorMessage, classifyConnectionError } from "./error-utils";
@@ -57,6 +57,18 @@ export type {
 } from "./clash.types";
 
 const DEFAULT_WS_TOKEN = "1145141919810";
+const REQUEST_TIMEOUT_MS = 15_000;
+const UPGRADE_TIMEOUT_MS = 120_000;
+
+class ClashApiError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+  }
+}
+
+function isAlreadyLatestMessage(message: unknown): message is string {
+  return typeof message === "string" && /^update error: already using latest version [0-9A-Za-z][0-9A-Za-z.+_-]*$/.test(message);
+}
 
 export function createClashApi(configPort: ConfigPort): ClashApiPort {
   async function getClashConfig(): Promise<ClashConfig> {
@@ -83,11 +95,7 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
     return headers;
   }
 
-  function quoteShellArgument(value: string): string {
-    return `'${value.replace(/'/g, `'\\''`)}'`;
-  }
-
-  async function clashRequest<T>(method: string, path: string, data?: unknown, options?: { port?: number; secret?: string }): Promise<T> {
+  async function clashRequest<T>(method: string, path: string, data?: unknown, options?: { port?: number; secret?: string; timeoutMs?: number }): Promise<T> {
     const config = await getClashConfig();
     const port = options?.port ?? config.port;
     const secret = options?.secret ?? config.secret;
@@ -100,30 +108,46 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
       fetchOptions.body = JSON.stringify(data);
     }
 
-    const response = await fetch(url, fetchOptions);
-    const text = await response.text();
+    const controller = new AbortController();
+    fetchOptions.signal = controller.signal;
+    const timeoutMs = options?.timeoutMs ?? REQUEST_TIMEOUT_MS;
+    const timeoutError = new Error(`Clash API request timed out after ${timeoutMs} ms (${method} ${path})`);
+    const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
 
-    if (!response.ok) {
-      if (text) {
-        try {
-          const errorData = JSON.parse(text) as { message?: string };
-          if (errorData.message) {
-            throw new Error(errorData.message);
-          }
-        } catch (e) {
-          if (e instanceof Error && e.message !== text) {
-            throw e;
+    try {
+      const response = await fetch(url, fetchOptions);
+      // Keep the same deadline while reading the response body.
+      const text = await response.text();
+
+      if (!response.ok) {
+        let message = `Clash API error: ${response.status} ${response.statusText}`;
+        if (text) {
+          try {
+            const errorData: unknown = JSON.parse(text);
+            if (errorData && typeof errorData === "object" && "message" in errorData && typeof errorData.message === "string" && errorData.message) {
+              message = errorData.message;
+            }
+          } catch {
+            // Non-JSON errors still retain their HTTP status.
           }
         }
+        throw new ClashApiError(message, response.status);
       }
-      throw new Error(`Clash API error: ${response.status} ${response.statusText}`);
-    }
 
-    if (!text) {
-      return null as T;
-    }
+      if (!text) {
+        return null as T;
+      }
 
-    return JSON.parse(text) as T;
+      return JSON.parse(text) as T;
+    } catch (error) {
+      // Body reads can report AbortError instead of the supplied abort reason.
+      if (controller.signal.aborted && (error === timeoutError || (error instanceof Error && error.name === "AbortError"))) {
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   async function checkVersion(options?: { port?: number; secret?: string }): Promise<ClashVersionCheckResult> {
@@ -174,7 +198,23 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
   }
 
   async function upgradeCore(): Promise<UpgradeResult> {
-    return clashRequest<UpgradeResult>("POST", "/upgrade", {});
+    let result: { status?: unknown; message?: unknown } | null;
+    try {
+      result = await clashRequest<typeof result>("POST", "/upgrade", {}, { timeoutMs: UPGRADE_TIMEOUT_MS });
+    } catch (error) {
+      if (error instanceof ClashApiError && error.status === 500 && isAlreadyLatestMessage(error.message)) {
+        return { status: "unchanged", message: error.message };
+      }
+      throw error;
+    }
+
+    if (isAlreadyLatestMessage(result?.message)) {
+      return { status: "unchanged", message: result.message };
+    }
+    if (result !== null && (typeof result !== "object" || Array.isArray(result) || (result.status !== undefined && result.status !== "ok"))) {
+      throw new Error(typeof result?.message === "string" ? result.message : "Clash API 返回格式异常");
+    }
+    return typeof result?.message === "string" ? { status: "ok", message: result.message } : { status: "ok" };
   }
 
   function createClashWebSocket(path: string, onMessage: (data: unknown) => void, onError?: (error: Event) => void): Promise<WebSocket> {
@@ -228,48 +268,29 @@ export function createClashApi(configPort: ConfigPort): ClashApiPort {
 
   async function testProxyDelay(name: string, options?: { url?: string; timeout?: number; aliases?: string[]; providerName?: string }): Promise<number> {
     const config = await getClashConfig();
-    const url = options?.url || "http://cp.cloudflare.com/generate_204";
-    const requestedTimeout = options?.timeout ?? 5000;
-    const timeout = Number.isFinite(requestedTimeout) ? Math.min(32767, Math.max(1, Math.trunc(requestedTimeout))) : 5000;
-    const commandTimeout = Math.ceil(timeout / 1000) + 2;
-    const encodedTestUrl = encodeURIComponent(url).replace(/%3A/gi, ":");
-    const candidates = [...new Set([name, ...(options?.aliases || [])].filter((candidate) => candidate))];
-    let lastResourceError = "";
-
-    for (const candidate of candidates) {
-      const path = options?.providerName
-        ? `/providers/proxies/${encodeURIComponent(options.providerName)}/${encodeURIComponent(candidate)}/healthcheck`
-        : `/proxies/${encodeURIComponent(candidate)}/delay`;
-      const endpoint = `http://127.0.0.1:${config.port}${path}?url=${encodedTestUrl}&timeout=${timeout}`;
-      const authOption = config.secret.trim() ? ` -H ${quoteShellArgument(`Authorization: Bearer ${config.secret.trim()}`)}` : "";
-      const response = await runCommand(`curl -sS --max-time ${commandTimeout}${authOption} ${quoteShellArgument(endpoint)}`);
-
-      if (response.errno !== 0) {
-        throw new Error(response.stderr.trim() || `curl exited with code ${response.errno}`);
-      }
-
-      let result: { delay?: number; message?: string };
-      try {
-        result = JSON.parse(response.stdout) as { delay?: number; message?: string };
-      } catch {
-        throw new Error("Clash API 返回格式异常");
-      }
-      const responseMessage = result.message || "";
-      if (/\b(?:resource|proxy)\b.*\bnot found\b|\bnot found\b.*\b(?:resource|proxy)\b/i.test(responseMessage)) {
-        lastResourceError = responseMessage;
-        continue;
-      }
-      // Mihomo getProxyDelay reports probe failure (503) or probe timeout (504).
-      // Transport/auth/resource errors must remain errors, not node failures.
-      if (responseMessage.toLowerCase().includes("error occurred in the delay test") || responseMessage === "Timeout") return 0;
-      if (result.message) throw new Error(result.message);
-      if (typeof result.delay !== "number" || !Number.isFinite(result.delay) || result.delay <= 0) {
-        throw new Error("Clash API 未返回有效延迟");
-      }
-      return result.delay;
+    const request = JSON.stringify({
+      port: config.port,
+      secret: config.secret.trim(),
+      name,
+      aliases: options?.aliases,
+      providerName: options?.providerName,
+      url: options?.url,
+      timeout: options?.timeout ?? 5000,
+    });
+    const response = await runNativeCommand(["proxy-delay", toBase64Utf8(request)]);
+    if (response.errno !== 0) {
+      throw new Error(response.stderr.trim() || `Proxy delay command exited with code ${response.errno}`);
     }
-
-    throw new Error(`${lastResourceError || "Resource not found"}（已尝试: ${candidates.join(" / ")}）`);
+    let result: { delay?: number };
+    try {
+      result = JSON.parse(response.stdout) as { delay?: number };
+    } catch {
+      throw new Error("Clash API 返回格式异常");
+    }
+    if (typeof result.delay !== "number" || !Number.isFinite(result.delay) || result.delay < 0) {
+      throw new Error("Clash API 未返回有效延迟");
+    }
+    return result.delay;
   }
 
   async function getProxyProviders(): Promise<ClashProxyProviderMap> {

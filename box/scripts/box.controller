@@ -1,86 +1,11 @@
 #!/system/bin/sh
 
-. "$(dirname "$(realpath "$0")")/box.env"
-. "${scripts_dir}/box.policy"
-
-is_manual_mode() {
-    [ -f "${box_path}/manual" ]
-}
-
-is_module_disabled() {
-    [ -f "${module_dir}/disable" ]
-}
-
-ensure_runtime_dir() {
-    mkdir -p "${run_path}"
-}
-
-wait_until_login() {
-    local test_file="/sdcard/Android/.BOX4TEST"
-
-    true > "${test_file}"
-    while [ ! -f "${test_file}" ]; do
-        true > "${test_file}"
-        sleep 1
-    done
-    rm -f "${test_file}"
-
-    while [ ! -f "/data/system/packages.xml" ]; do
-        sleep 1
-    done
-}
-
-boot_start() {
-    wait_until_login
-
-    rm -f "${pid_file}"
-    ensure_runtime_dir
-
-    if is_manual_mode || is_module_disabled; then
-        return 0
+export PATH="/data/adb/magisk:/data/adb/ksu/bin:/data/adb/ap/bin:$PATH"
+module_dir=/data/adb/modules/mono_box
+lite_dir=/data/adb/lite_modules/mono_box
+if [ -x "$lite_dir/bin/monobox" ]; then
+    if [ ! -x "$module_dir/bin/monobox" ] || magisk -v 2>/dev/null | grep -q lite; then
+        module_dir="$lite_dir"
     fi
-
-    mv "${run_path}/run.log" "${run_path}/run.log.bak" > /dev/null 2>&1 || true
-    "${service_path}" start >> /dev/null 2>> "${run_log}"
-}
-
-handle_module_toggle_event() {
-    local events="$1"
-    local monitor_file="$2"
-
-    is_manual_mode && return 0
-    [ "${monitor_file}" = "disable" ] || return 0
-
-    case "${events}" in
-        d)
-            "${service_path}" start >> /dev/null 2>> "${run_log}"
-            ;;
-        n)
-            "${service_path}" stop >> /dev/null 2>> "${run_log}"
-            ;;
-    esac
-}
-
-main() {
-    local events="$1"
-    local monitor_dir="$2"
-    local monitor_file="$3"
-
-    normalize_ctr_mode
-    ensure_runtime_dir
-
-    case "${events}" in
-        boot)
-            boot_start
-            return 0
-            ;;
-        "")
-            return 0
-            ;;
-    esac
-
-    handle_module_toggle_event "${events}" "${monitor_file}"
-    handle_network_policy_event "${events}" "${monitor_dir}" "${monitor_file}"
-}
-
-main "$@"
+fi
+exec "$module_dir/bin/monobox" --module-dir "$module_dir" controller "$@"

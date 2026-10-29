@@ -9,107 +9,12 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: monobox-release
+  cancel-in-progress: false
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Read metadata
-        id: meta
-        run: |
-          VERSION="$(awk -F '=' '/^version=/{print $2}' module.prop)"
-          TAG_NAME="${GITHUB_REF_NAME}"
-
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then
-            TAG_NAME="$(git tag --sort=-v:refname | grep '^v' | head -n 1 || true)"
-            if [ -z "${TAG_NAME}" ]; then
-              echo "No v* tag found, cannot run release from main"
-              exit 1
-            fi
-            echo "Running on main, resolved latest tag: ${TAG_NAME}"
-          fi
-
-          if [ "${VERSION}" != "${TAG_NAME}" ]; then
-            echo "module.prop version (${VERSION}) must match tag (${TAG_NAME})"
-            exit 1
-          fi
-
-          ZIP_NAME="MonoBox_${VERSION}.zip"
-          ZIP_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG_NAME}/${ZIP_NAME}"
-          CHANGELOG_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/changelog.md"
-
-          {
-            echo "version=${VERSION}"
-            echo "tag_name=${TAG_NAME}"
-            echo "zip_name=${ZIP_NAME}"
-            echo "zip_url=${ZIP_URL}"
-            echo "changelog_url=${CHANGELOG_URL}"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-          package_json_file: webui/package.json
-
-      - name: Run build.sh
-        id: build
-        run: sh build.sh
-
-      - name: Check zip file exists
-        run: |
-          if [ ! -f "${{ steps.meta.outputs.zip_name }}" ]; then
-            echo "Expected zip not found: ${{ steps.meta.outputs.zip_name }}"
-            ls -lah
-            exit 1
-          fi
-
-      - name: Generate changelog.md
-        run: |
-          TAG_NAME="${{ steps.meta.outputs.tag_name }}"
-          PREV_TAG="$(git tag --sort=-v:refname | grep '^v' | grep -vx "${TAG_NAME}" | head -n 1 || true)"
-
-          {
-            echo "# Changelog"
-            echo
-            echo "## ${TAG_NAME}"
-            echo
-            if [ -n "${PREV_TAG}" ]; then
-              echo "Changes since ${PREV_TAG}:"
-              echo
-              git log "${PREV_TAG}..${TAG_NAME}" --pretty=format:'- %s (%h)'
-            else
-              echo "Initial release changes:"
-              echo
-              git log --pretty=format:'- %s (%h)'
-            fi
-            echo
-          } > changelog.md
-
-      - name: Generate update.json
-        run: |
-          jq -n \
-            --arg version "${{ steps.meta.outputs.version }}" \
-            --argjson versionCode "${{ steps.build.outputs.version_code }}" \
-            --arg zipUrl "${{ steps.meta.outputs.zip_url }}" \
-            --arg changelog "${{ steps.meta.outputs.changelog_url }}" \
-            '{
-              version: $version,
-              versionCode: $versionCode,
-              zipUrl: $zipUrl,
-              changelog: $changelog
-            }' > update.json
-
-      - name: Upload release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ steps.meta.outputs.tag_name }}
-          files: |
-            ${{ steps.meta.outputs.zip_name }}
-            changelog.md
-            update.json
-          body_path: changelog.md
+  release:
+    uses: ./.github/workflows/build.yml
+    with:
+      channel: release

@@ -39,14 +39,15 @@ export function runCommand(command: string, { onLine, ...options }: CommandOptio
 
     const stdout: string[] = [];
     const stderr: string[] = [];
-    // Native spawn appends a space even with no args; keep it off heredoc terminators.
+    // KernelSU uses a libsu shell job and appends its exit-status marker.
+    // Isolate exec/exit from that shell; the final newline also protects heredocs.
     let child: ReturnType<typeof spawn>;
 
     hookSynchronousSpawnErrors(nativeBridge);
     const previousErrorHandler = activeSpawnErrorHandler;
     activeSpawnErrorHandler = reject;
     try {
-      child = spawn(`${command}\n`, [], options);
+      child = spawn(`(\n${command}\n)\n`, [], options);
     } catch (error) {
       reject(error);
       return;

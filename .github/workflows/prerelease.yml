@@ -13,95 +13,12 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: monobox-prerelease
+  cancel-in-progress: false
+
 jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Read metadata
-        id: meta
-        run: |
-          VERSION="$(awk -F '=' '/^version=/{print $2}' module.prop)"
-          ZIP_NAME="MonoBox_${VERSION}.zip"
-          ZIP_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/Prerelease/${ZIP_NAME}"
-          CHANGELOG_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY}/releases/download/Prerelease/prerelease-changelog.md"
-          {
-            echo "version=${VERSION}"
-            echo "zip_name=${ZIP_NAME}"
-            echo "zip_url=${ZIP_URL}"
-            echo "changelog_url=${CHANGELOG_URL}"
-          } >> "${GITHUB_OUTPUT}"
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          run_install: false
-          package_json_file: webui/package.json
-
-      - name: Run build.sh
-        id: build
-        run: sh build.sh --prerelease
-
-      - name: Check zip file exists
-        run: |
-          if [ ! -f "${{ steps.meta.outputs.zip_name }}" ]; then
-            echo "Expected zip not found: ${{ steps.meta.outputs.zip_name }}"
-            ls -lah
-            exit 1
-          fi
-
-      - name: Generate prerelease changelog
-        run: |
-          {
-            echo "# Prerelease"
-            echo
-            echo "Auto-generated from latest commits."
-            echo
-            git log -n 10 --pretty=format:'- %s (%h)'
-            echo
-          } > prerelease-changelog.md
-
-      - name: Generate update.json
-        run: |
-          jq -n \
-            --arg version "${{ steps.meta.outputs.version }}" \
-            --argjson versionCode "${{ steps.build.outputs.version_code }}" \
-            --arg zipUrl "${{ steps.meta.outputs.zip_url }}" \
-            --arg changelog "${{ steps.meta.outputs.changelog_url }}" \
-            '{
-              version: $version,
-              versionCode: $versionCode,
-              zipUrl: $zipUrl,
-              changelog: $changelog
-            }' > update.json
-
-      - name: Delete current prerelease assets
-        uses: andreaswilli/delete-release-assets-action@v3.0.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          tag: Prerelease
-          deleteOnlyFromDrafts: false
-
-      # - name: Tag Repo
-      #   uses: richardsimko/update-tag@v1
-      #   with:
-      #     tag_name: Prerelease
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload Prerelease
-        uses: softprops/action-gh-release@v1
-        if: ${{ success() }}
-        with:
-          tag: Prerelease
-          tag_name: Prerelease
-          files: |
-            ${{ steps.meta.outputs.zip_name }}
-            prerelease-changelog.md
-            update.json
-          body_path: prerelease-changelog.md
-          prerelease: true
+  prerelease:
+    uses: ./.github/workflows/build.yml
+    with:
+      channel: prerelease

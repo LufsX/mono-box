@@ -49,11 +49,14 @@ Mono Box 提供一个 WEB UI 管理面板，功能包括：
 1. 从 Releases 下载最新模块：
    https://github.com/LufsX/mono-box/releases
 2. 在 Magisk Manager、KernelSU Manager 或 APatch Manager 中安装 ZIP。
-3. 模块支持在线更新元数据。
+3. 安装与设备 ABI 对应的包。在线更新保持相同架构和发布渠道。
 
 安装包命名：
 
-- MonoBox_vX.Y.zip
+- MonoBox_vX.Y_arm64-v8a.zip
+- MonoBox_vX.Y_armeabi-v7a.zip
+- MonoBox_vX.Y_x86_64.zip
+- MonoBox_vX.Y_x86.zip
 
 ## 核心放置
 
@@ -63,9 +66,12 @@ Mono Box 提供一个 WEB UI 管理面板，功能包括：
 
 ## 运行结构
 
+Go 程序 `monobox` 放在模块目录，随模块更新替换；`/data/adb/box/` 保存核心和运行数据。该程序负责服务、网络策略、配置档、下载和日志管理。从源码构建需要 Go 1.24 或更高版本、Node.js、pnpm 和 UPX。默认构建 arm64 包；`--arch arm64,arm,amd64,386` 可指定架构，`--arch all` 生成四个独立安装包。每个包仅包含一个经 UPX 压缩的原生程序，并使用各自的 `update-<ABI>.json`。正式版和预发布 workflow 均构建全部四个包。
+
 主要路径：
 
 - /data/adb/box/
+- /data/adb/modules/mono_box/bin/monobox
 - /data/adb/box/scripts/box.config
 - /data/adb/box/scripts/box.service
 - /data/adb/box/scripts/box.controller
@@ -73,7 +79,7 @@ Mono Box 提供一个 WEB UI 管理面板，功能包括：
 
 服务入口：
 
-- /data/adb/service.d/box_service.sh
+- /data/adb/modules/mono_box/service.sh
 
 ## 关键配置
 
@@ -95,6 +101,7 @@ Mono Box 提供一个 WEB UI 管理面板，功能包括：
 
 - tun/selector/mode 联动依赖核心配置中已启用 Clash API。
 - 若 Clash API 未启用，则这些联动功能不会生效。
+- `box.config` 支持字面值 shell 赋值和注释；读取配置时不执行 shell 命令。升级会保留此文件。
 
 ## 使用方式
 
@@ -131,7 +138,7 @@ Action 控制：
 ## 卸载
 
 - 在 Magisk / KernelSU / APatch 中卸载模块。
-- 卸载脚本会移除 /data/adb/service.d/box_service.sh。
+- 卸载脚本会停止控制器和核心，管理器负责移除模块目录。
 - 默认保留 /data/adb/box 运行数据。
 
 如需清除数据：

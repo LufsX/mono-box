@@ -56,13 +56,27 @@ function splitConfigValueComment(value: string): { valuePart: string; commentPar
 
 export function stripConfigValue(value: string): string {
   const trimmed = splitConfigValueComment(value).valuePart.trim();
-  if (trimmed.length >= 2 && trimmed.startsWith('"') && trimmed.endsWith('"')) {
-    return trimmed.slice(1, -1);
+  let result = "";
+  let quote: '"' | "'" | null = null;
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const char = trimmed[i];
+    if (quote === "'") {
+      if (char === "'") quote = null;
+      else result += char;
+    } else if (char === "\\" && i + 1 < trimmed.length) {
+      const next = trimmed[i + 1];
+      if (quote === '"' && !['$', '`', '"', "\\"].includes(next)) result += char;
+      else result += trimmed[++i];
+    } else if (quote === '"') {
+      if (char === '"') quote = null;
+      else result += char;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else {
+      result += char;
+    }
   }
-  if (trimmed.length >= 2 && trimmed.startsWith("'") && trimmed.endsWith("'")) {
-    return trimmed.slice(1, -1);
-  }
-  return trimmed;
+  return result;
 }
 
 export function readConfigValue(content: string, key: string, fallback = ""): string {

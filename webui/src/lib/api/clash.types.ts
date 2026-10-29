@@ -191,9 +191,8 @@ export interface ClashConfigs {
 }
 
 export interface UpgradeResult {
-  status?: string;
+  status: "ok" | "unchanged";
   message?: string;
-  [key: string]: unknown;
 }
 
 export interface ClashProxyDetail {

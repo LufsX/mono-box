@@ -27,7 +27,12 @@ export function createBoxConfigAccessor(configPort: ConfigPort) {
 
   async function updateBoxConfigValues(updates: Record<string, string>): Promise<void> {
     try {
-      let content = await getBoxConfigRaw();
+      if (configPort.updateBoxConfigValues) {
+        await configPort.updateBoxConfigValues(updates);
+        cachedContent = null;
+        return;
+      }
+      let content = await configPort.readBoxConfig();
 
       for (const [key, value] of Object.entries(updates)) {
         content = upsertConfigValue(content, key, value);
