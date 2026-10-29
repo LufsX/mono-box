@@ -5,6 +5,7 @@
   import { fly } from "svelte/transition";
   import { actionApi, parseBoxConfig, getBoxConfigRaw, stores, actions as clashActions } from "$lib/api";
   import CoreInfo from "$lib/components/home/CoreInfo.svelte";
+  import Diagnostics from "$lib/components/home/Diagnostics.svelte";
   import TunControl from "$lib/components/home/TunControl.svelte";
   import ServiceActions from "$lib/components/home/ServiceActions.svelte";
   import SystemStats from "$lib/components/home/SystemStats.svelte";
@@ -186,4 +187,6 @@
       {/if}
     </div>
   {/each}
+
+  <Diagnostics disabled={busy} />
 </main>

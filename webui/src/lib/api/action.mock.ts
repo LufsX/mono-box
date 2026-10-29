@@ -50,6 +50,10 @@ let mockBoxConfig = [
   'target_cellular=""',
   'target_wifi=""',
   'target_wifi_list=""',
+  "auto_recovery=false",
+  "auto_update_config=false",
+  "config_update_interval_hours=24",
+  "config_update_wifi_only=true",
 ].join("\n");
 
 let mockMihomoCurrentConfig = ["mixed-port: 7890", "allow-lan: false", "mode: rule", "log-level: info", "proxies: []", "proxy-groups: []", "rules:", "  - MATCH,DIRECT"].join("\n");
