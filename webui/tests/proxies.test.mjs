@@ -52,7 +52,8 @@ const providerControl = elements.find((node) => node.name === "button"
 const testExports = `
 return {
   loadData, switchMode, selectNode, updateProvider, testSingleNode, runNodeTest, runTestBatch,
-  testGroup, testProviderNode, readNodeLatency, providerUsableNodes, retryLoadData,
+  testGroup, testProvider, testProviderNode, readNodeLatency, providerUsableNodes, retryLoadData,
+  resolveTestTarget, nodeFailed, isNodeTesting, providerTargets, providerCanTest, providerIsBusy,
   chooseMode(value) { modeSelectValue = value; return switchMode(value); },
   snapshot: () => ({ proxies, providers, modeSelectValue, currentMode: $currentMode,
     error, errorReason, switchingMode, selectingGroup, updatingProvider, mutationInFlight,
@@ -422,4 +423,92 @@ test("explicit provider latency display reads results without scanning provider 
   await h.page.testProviderNode(event, "removed", "N0");
   assert.equal(h.delays.length, 0);
   assert.match(h.page.snapshot().error, /无法确定节点的测速资源/);
+});
+
+for (const count of [1000, 2000]) {
+  test(`provider row queries and batch target resolution reuse a linear index, nodes=${count}`, async () => {
+    const h = harness();
+    const data = fixture();
+    const names = Array.from({ length: count }, (_, i) => `N${i}`);
+    let nameReads = 0;
+    data.providers.P.proxies = names.map((name, i) => ({
+      get name() { nameReads++; return name; },
+      type: "SS",
+      history: [{ time: "2026-01-01T00:00:00Z", delay: i % 2 ? 0 : 30 }],
+    }));
+    await h.start(data);
+    assert.ok(nameReads <= count * 8, `snapshot used ${nameReads} name reads`);
+    nameReads = 0;
+    for (const [i, name] of names.entries()) {
+      assert.equal(h.page.resolveTestTarget(name, "P", "P").apiName, name);
+      assert.equal(h.page.resolveTestTarget(name).providerName, "P");
+      assert.equal(h.page.nodeFailed(name, "P"), Boolean(i % 2));
+      assert.equal(h.page.isNodeTesting(name, "P"), false);
+      assert.equal(h.page.readNodeLatency(name), i % 2 ? 0 : 30);
+    }
+    assert.equal(nameReads, 0);
+    const targets = h.page.providerTargets("P");
+    assert.equal(targets.length, count);
+    assert.equal(targets.every((target) => target.providerName === "P" && target.apiName === target.name), true);
+    assert.equal(nameReads, count);
+    nameReads = 0;
+    assert.equal(h.page.providerCanTest("P"), true);
+    assert.equal(h.page.providerIsBusy("P"), false);
+    assert.equal(nameReads, count * 2);
+    nameReads = 0;
+    const testing = h.page.testProvider(event, "P");
+    assert.equal(nameReads, count);
+    assert.equal(h.delays.length, 5);
+    for (const [i, request] of h.delays.entries()) {
+      assert.equal(request.args[0], names[i]);
+      assert.equal(request.args[1].providerName, "P");
+      assert.equal(h.page.isNodeTesting(names[i], "P"), true);
+      assert.equal(h.page.isNodeTesting(names[i], "Q"), false);
+    }
+    assert.equal(nameReads, count);
+    h.leave();
+    for (const request of h.delays) request.resolve(30);
+    await testing;
+    assert.equal(h.delays.length, 5);
+    assert.equal(h.reads.length, 1);
+  });
+}
+
+test("provider refresh rebuilds membership and ambiguity even when syncRecord retains identity", async () => {
+  const h = harness();
+  const data = fixture();
+  data.providers.P.proxies = [{ name: "shared", type: "SS" }, { name: "removed", type: "SS" }];
+  await h.start(data);
+  const originalProviders = h.page.snapshot().providers;
+  assert.equal(h.page.resolveTestTarget("shared").providerName, "P");
+  assert.equal(h.page.resolveTestTarget("removed", "P", "P").apiName, "removed");
+
+  const refresh = h.page.loadData(true);
+  const next = fixture();
+  next.providers.P.proxies = [{ name: "shared", type: "SS" }, { name: "new", type: "SS" }];
+  next.providers.Q.proxies = [{ name: "shared", type: "SS" }];
+  next.proxies.removed = { name: "removed", type: "SS" };
+  next.proxies.stale = { name: "stale", type: "SS", "provider-name": "deleted" };
+  h.reads[1].resolve(next);
+  await refresh;
+  assert.equal(h.page.snapshot().providers, originalProviders);
+  assert.equal(h.page.resolveTestTarget("shared").apiName, undefined);
+  assert.equal(h.page.resolveTestTarget("shared", "P", "P").apiName, "shared");
+  assert.equal(h.page.resolveTestTarget("new").providerName, "P");
+  assert.equal(h.page.resolveTestTarget("removed", "P", "P").apiName, undefined);
+  assert.equal(h.page.resolveTestTarget("stale").apiName, undefined);
+  assert.equal(h.page.resolveTestTarget("removed", undefined, "deleted").apiName, undefined);
+  await h.page.testProviderNode(event, "P", "removed");
+  await h.page.testProviderNode(event, "deleted", "removed");
+  assert.equal(h.delays.length, 0);
+
+  const removal = h.page.loadData(true);
+  const final = fixture();
+  delete final.providers.P;
+  final.providers.Q.proxies = [{ name: "shared", type: "SS" }];
+  h.reads[2].resolve(final);
+  await removal;
+  assert.equal(h.page.resolveTestTarget("shared").providerName, "Q");
+  assert.equal(h.page.resolveTestTarget("shared", "P", "P").apiName, undefined);
+  assert.equal(h.page.resolveTestTarget("new").apiName, undefined);
 });

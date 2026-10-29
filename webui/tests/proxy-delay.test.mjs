@@ -33,6 +33,31 @@ test('provider-only targets use exact provider resource; ambiguous names do not 
   assert.equal(mapping.resolveProxyTestTarget({ 'HK / 专线': {} }, providers, 'HK / 专线', undefined, 'subscription').providerName, 'subscription');
 });
 
+test('provider index preserves exact membership, duplicate ambiguity and compatible-provider rules', () => {
+  const data = {
+    P: { vehicleType: 'HTTP', proxies: [{ name: 'A B' }, { name: 'A B' }, { name: 'shared' }] },
+    Q: { vehicleType: 'File', proxies: [{ name: 'shared' }] },
+    C: { vehicleType: 'Compatible', proxies: [{ name: 'A B' }, { name: 'only-compatible' }] },
+  };
+  const index = mapping.buildProviderNodeIndex(data);
+  const resolve = (name, proxies = {}, providerName) => mapping.resolveProxyTestTarget(proxies, data, name, 'context', providerName, index);
+  assert.equal(resolve('A B').providerName, 'P');
+  assert.equal(resolve('AB').apiName, undefined);
+  assert.equal(resolve('shared').apiName, undefined);
+  assert.equal(resolve('only-compatible').apiName, undefined);
+  assert.equal(resolve('only-compatible', {}, 'C').apiName, 'only-compatible');
+  assert.equal(resolve('shared', {}, 'Q').providerName, 'Q');
+  assert.equal(resolve('shared', { shared: {} }).providerName, undefined);
+  assert.equal(resolve('shared', { shared: {} }, 'deleted').apiName, undefined);
+  assert.equal(resolve('shared', { shared: { 'provider-name': 'deleted' } }).apiName, undefined);
+  assert.equal(resolve('A B', { 'A B': {} }, 'Q').apiName, undefined);
+  for (const name of ['A B', 'AB', 'shared', 'only-compatible', 'missing']) {
+    for (const providerName of [undefined, 'P', 'Q', 'C', 'deleted']) {
+      assert.deepEqual(resolve(name, {}, providerName), mapping.resolveProxyTestTarget({}, data, name, 'context', providerName));
+    }
+  }
+});
+
 test('provider results and names with whitespace remain isolated', () => {
   let result = state.emptyProxyTestState();
   result = state.commitProxyTestResult(result, { name: 'A B', providerName: 'one' }, 45, {});

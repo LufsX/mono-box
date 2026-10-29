@@ -16,6 +16,7 @@
   import { formatBytes } from "$lib/utils";
   import {
     buildProxyDetailMap,
+    buildProviderNodeIndex,
     formatProviderExpireDate as formatDate,
     getLatencyStyle,
     groupNames as resolveGroupNames,
@@ -47,6 +48,7 @@
   let proxies = $state<ClashProxyMap | null>(null);
   let proxyDetails = $state<ClashProxyMap>({});
   let providers = $state<ClashProxyProviderMap | null>(null);
+  let providerNodeIndex = $state(buildProviderNodeIndex(null));
   const currentMode = stores.currentMode;
   let modeSelectValue = $state<ClashMode>("rule");
   let currentView = $state<ViewType>("proxies");
@@ -88,9 +90,13 @@
     { value: "direct", label: "直连" },
   ];
 
+  function resolveTestTarget(name: string, contextName?: string, providerName?: string): ProxyTestTarget {
+    return resolveProxyTestTarget(proxies, providers, name, contextName, providerName, providerNodeIndex);
+  }
+
   function readNodeLatency(name: string, providerName?: string): number {
     if (providerName !== undefined) return readNodeTestLatency(testState, name, providerName);
-    const target = resolveProxyTestTarget(proxies, providers, name, undefined, providerName);
+    const target = resolveTestTarget(name, undefined, providerName);
     return readNodeTestLatency(testState, name, target.providerName);
   }
 
@@ -101,13 +107,13 @@
   }
 
   function nodeFailed(name: string, providerName?: string): boolean {
-    const target = resolveProxyTestTarget(proxies, providers, name, undefined, providerName);
+    const target = resolveTestTarget(name, undefined, providerName);
     return isNodeTestFailed(testState, name, target.providerName);
   }
 
   function groupResult(groupName: string) {
     const name = proxies?.[groupName]?.now;
-    const target = name ? resolveProxyTestTarget(proxies, providers, name) : undefined;
+    const target = name ? resolveTestTarget(name) : undefined;
     return target ? readNodeTestResult(testState, target.name, target.providerName) : undefined;
   }
 
@@ -162,7 +168,7 @@
   }
 
   function isNodeTesting(name: string, providerName?: string): boolean {
-    return testTargetNames(resolveProxyTestTarget(proxies, providers, name, undefined, providerName)).some((key) => Boolean(testingNodes[key]));
+    return testTargetNames(resolveTestTarget(name, undefined, providerName)).some((key) => Boolean(testingNodes[key]));
   }
 
   function testStart(owner: string, targets: ProxyTestTarget[]): boolean {
@@ -220,6 +226,7 @@
       proxies = syncRecord(proxies, proxyData);
       proxyDetails = syncRecord(proxyDetails, buildProxyDetailMap(proxyData, providerData));
       providers = syncRecord(providers, providerData);
+      providerNodeIndex = buildProviderNodeIndex(providerData);
       if (configData?.mode) {
         currentMode.set(configData.mode as ClashMode);
         modeSelectValue = configData.mode as ClashMode;
@@ -347,11 +354,11 @@
   }
 
   function groupTargets(groupName: string): ProxyTestTarget[] {
-    return groupNodes(groupName).map((node) => resolveProxyTestTarget(proxies, providers, node.name, groupName));
+    return groupNodes(groupName).map((node) => resolveTestTarget(node.name, groupName));
   }
 
   function providerTargets(providerName: string): ProxyTestTarget[] {
-    return (providers?.[providerName]?.proxies || []).map((node) => resolveProxyTestTarget(proxies, providers, node.name, providerName, providerName));
+    return (providers?.[providerName]?.proxies || []).map((node) => resolveTestTarget(node.name, providerName, providerName));
   }
 
   function targetsAreTesting(targets: ProxyTestTarget[]): boolean {
@@ -461,7 +468,7 @@
   async function testProviderNode(event: MouseEvent, providerName: string, nodeName: string) {
     if (updatingProvider || switchingMode || selectingGroup) return;
     const owner = `provider-node:${providerName}:${nodeName}`;
-    await testSingleNode(event, owner, resolveProxyTestTarget(proxies, providers, nodeName, providerName, providerName));
+    await testSingleNode(event, owner, resolveTestTarget(nodeName, providerName, providerName));
   }
 
   onMount(() => {
@@ -775,7 +782,7 @@
             {@const selected = group?.now === node.name}
             {@const nodeOwner = `node:${openedGroup}:${node.name}`}
             {@const nodeTesting = isNodeTesting(node.name)}
-            {@const target = resolveProxyTestTarget(proxies, providers, node.name, openedGroup)}
+            {@const target = resolveTestTarget(node.name, openedGroup)}
 
             <div class="min-w-0" animate:flip={{ duration: 280, easing: quintOut }}>
               <ProxyNodeTile
@@ -844,7 +851,7 @@
 
           {#each provider?.proxies || [] as item, index (`${openedProvider}:${item.name}:${index}`)}
             {@const nodeTesting = isNodeTesting(item.name, openedProvider)}
-            {@const target = resolveProxyTestTarget(proxies, providers, item.name, openedProvider, openedProvider)}
+            {@const target = resolveTestTarget(item.name, openedProvider, openedProvider)}
 
             <ProxyNodeTile
               name={item.name}

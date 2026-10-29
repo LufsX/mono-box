@@ -136,21 +136,39 @@ export function resolveProxyApiName(proxies: ClashProxyMap | null, name: string)
   return Object.prototype.hasOwnProperty.call(proxies || {}, name) ? name : undefined;
 }
 
-export function resolveProxyTestTarget(proxies: ClashProxyMap | null, providers: ClashProxyProviderMap | null, name: string, contextName?: string, providerName?: string) {
+export interface ProviderNodeIndex {
+  nodesByProvider: ReadonlyMap<string, ReadonlySet<string>>;
+  uniqueProviderByNode: ReadonlyMap<string, string | null>;
+}
+
+// Rebuild for each provider snapshot, including snapshots merged into the same object.
+export function buildProviderNodeIndex(providers: ClashProxyProviderMap | null): ProviderNodeIndex {
+  const nodesByProvider = new Map<string, Set<string>>();
+  const uniqueProviderByNode = new Map<string, string | null>();
+  for (const [providerName, provider] of Object.entries(providers || {})) {
+    const names = new Set((provider.proxies || []).map((node) => node.name));
+    nodesByProvider.set(providerName, names);
+    if (provider.vehicleType.toLowerCase() === "compatible") continue;
+    for (const name of names) {
+      uniqueProviderByNode.set(name, uniqueProviderByNode.has(name) ? null : providerName);
+    }
+  }
+  return { nodesByProvider, uniqueProviderByNode };
+}
+
+export function resolveProxyTestTarget(proxies: ClashProxyMap | null, providers: ClashProxyProviderMap | null, name: string, contextName?: string, providerName?: string, providerIndex?: ProviderNodeIndex) {
   const declaredProvider = providerName ?? proxies?.[name]?.["provider-name"];
   if (declaredProvider) {
-    const exists = providers?.[declaredProvider]?.proxies?.some((node) => node.name === name);
+    const exists = (providerIndex ?? buildProviderNodeIndex(providers)).nodesByProvider.get(declaredProvider)?.has(name);
     return exists
       ? { name, apiName: name, providerName: declaredProvider, contextName }
       : { name, providerName: declaredProvider, contextName };
   }
   const apiName = resolveProxyApiName(proxies, name);
   if (apiName) return { name, apiName, contextName };
-  const matches = Object.entries(providers || {}).filter(([, provider]) =>
-    provider.vehicleType.toLowerCase() !== "compatible" && provider.proxies?.some((node) => node.name === name),
-  );
-  return matches.length === 1
-    ? { name, apiName: name, providerName: matches[0][0], contextName }
+  const matchedProvider = (providerIndex ?? buildProviderNodeIndex(providers)).uniqueProviderByNode.get(name);
+  return matchedProvider !== undefined && matchedProvider !== null
+    ? { name, apiName: name, providerName: matchedProvider, contextName }
     : { name, contextName };
 }
 
