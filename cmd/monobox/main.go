@@ -49,6 +49,16 @@ func run(args []string, out, errOut io.Writer) int {
 	if *module == "" {
 		*module = moduleDir()
 	}
+	if args[0] == "watch" {
+		log, err := openWatchLog(absRoot)
+		if err != nil {
+			fmt.Fprintln(errOut, "Error: watch log:", err)
+			return 1
+		}
+		defer log.Close()
+		out = io.MultiWriter(out, log)
+		errOut = io.MultiWriter(errOut, log)
+	}
 	r, err := box.New(absRoot, *module, out, errOut)
 	// Reading or repairing settings and stopping the watcher remain available
 	// when a manually edited configuration contains an invalid value.

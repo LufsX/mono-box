@@ -266,8 +266,22 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 	go func() {
 		ticker := time.NewTicker(deps.interval)
 		defer ticker.Stop()
+		var retry watchRetry
 		for {
+			if !retry.ready("boot-ready", time.Now()) {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					continue
+				}
+			}
 			ready, err := deps.ready(ctx)
+			if err != nil {
+				retry.failed(time.Now(), deps.interval)
+			} else {
+				retry.reset()
+			}
 			if err != nil || ready {
 				select {
 				case boot <- err:
@@ -288,58 +302,92 @@ func (r *Runtime) watch(ctx context.Context, deps controllerDeps) (result error)
 	ticker := time.NewTicker(deps.interval)
 	defer ticker.Stop()
 	disabled := base.Exists(filepath.Join(r.ModuleDir, "disable"))
-	var network string
+	observedDisabled := disabled
+	var network, observedNetwork string
+	var disableRetry, bootRetry, snapshotRetry, networkRetry watchRetry
+	var readyError, disableError, bootError, snapshotError, networkError watchError
 	bootReady, bootDone := false, false
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case bootErr := <-boot:
-			if bootErr != nil {
-				r.controllerError(bootErr)
-			} else {
+			readyError.report(r, bootErr, time.Now())
+			if bootErr == nil {
 				bootReady = true
 			}
 		case <-ticker.C:
 		}
 		// A fresh config is loaded for every service/network event.
+		now := time.Now()
 		nowDisabled := base.Exists(filepath.Join(r.ModuleDir, "disable"))
+		if nowDisabled != observedDisabled {
+			observedDisabled = nowDisabled
+			disableRetry.reset()
+			bootRetry.reset()
+			networkRetry.reset()
+			snapshotRetry.reset()
+			// Reconcile policy after a module switch even if rt_tables is unchanged.
+			network = ""
+		}
 		if nowDisabled != disabled {
 			if nowDisabled || bootReady {
-				event := "d"
-				if nowDisabled {
-					event = "n"
-				}
-				if err = r.controller(ctx, []string{event, r.ModuleDir, "disable"}, deps); err != nil {
-					r.controllerError(err)
-				} else {
-					disabled = nowDisabled
+				if disableRetry.ready(strconv.FormatBool(nowDisabled), now) {
+					event := "d"
+					if nowDisabled {
+						event = "n"
+					}
+					err = r.controller(ctx, []string{event, r.ModuleDir, "disable"}, deps)
+					disableError.report(r, err, time.Now())
+					if err != nil {
+						disableRetry.failed(time.Now(), deps.interval)
+					} else {
+						disabled = nowDisabled
+						disableRetry.reset()
+					}
 				}
 			} else {
 				disabled = nowDisabled
 			}
 		}
-		if bootReady && !bootDone {
-			if err = r.bootController(deps); err != nil {
-				r.controllerError(err)
+		if bootReady && !bootDone && bootRetry.ready("boot", time.Now()) {
+			err = r.bootController(deps)
+			bootError.report(r, err, time.Now())
+			if err != nil {
+				bootRetry.failed(time.Now(), deps.interval)
 			} else {
 				bootDone = true
+				bootRetry.reset()
+				networkRetry.reset()
 			}
 		}
-		snapshot, readErr := networkSnapshot(deps.netPath)
-		if readErr != nil {
-			r.controllerError(readErr)
+		if !snapshotRetry.ready(deps.netPath, time.Now()) {
 			continue
+		}
+		snapshot, readErr := networkSnapshot(deps.netPath)
+		snapshotError.report(r, readErr, time.Now())
+		if readErr != nil {
+			snapshotRetry.failed(time.Now(), deps.interval)
+			continue
+		}
+		snapshotRetry.reset()
+		if snapshot != observedNetwork {
+			observedNetwork = snapshot
+			networkRetry.reset()
 		}
 		if snapshot == "missing" {
 			network = snapshot
+			networkRetry.reset()
 			continue
 		}
-		if snapshot != network && bootReady {
-			if err = r.controller(ctx, []string{"w", deps.netPath}, deps); err != nil {
-				r.controllerError(err)
+		if snapshot != network && bootReady && networkRetry.ready(snapshot, time.Now()) {
+			err = r.controller(ctx, []string{"w", deps.netPath}, deps)
+			networkError.report(r, err, time.Now())
+			if err != nil {
+				networkRetry.failed(time.Now(), deps.interval)
 			} else {
 				network = snapshot
+				networkRetry.reset()
 			}
 		}
 	}
