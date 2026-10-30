@@ -86,7 +86,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: shared-webui-${{ steps.ref.outputs.source_sha }}
-          path: webui/build/
+          path: dist/webui/
           if-no-files-found: error
 
   build:
@@ -139,9 +139,9 @@ jobs:
         with:
           name: monobox-${{ matrix.arch }}
           path: |
-            MonoBox_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.zip
-            update-${{ matrix.arch }}.json
-            update.json
+            dist/MonoBox_${{ needs.prepare.outputs.version }}_${{ matrix.arch }}.zip
+            dist/update-${{ matrix.arch }}.json
+            dist/update.json
           if-no-files-found: error
 
   publish:

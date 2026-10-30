@@ -3,21 +3,28 @@ set -eu
 
 cd "$(dirname "$0")"
 PROJECT_DIR=$(pwd)
+DIST_DIR="$PROJECT_DIR/dist"
 usage() {
     echo "Usage: sh build.sh [--prerelease] [--arch ARCH[,ARCH...]] [--webui-dir DIR]"
+    echo "       sh build.sh [--webui-only | --native-only | --check | --clean]"
     echo "--webui-dir DIR reuses a precompiled WebUI without pnpm; relative paths use the project root."
     echo "Architectures: arm64 (default), arm, amd64, 386, all"
     echo "Android ABI names arm64-v8a, armeabi-v7a, x86_64 and x86 are also accepted."
-    echo "Each ABI produces its own ZIP and update manifest."
+    echo "Outputs: dist/webui, dist/bin/monobox-ABI, dist/MonoBox_*.zip, dist/update*.json."
     echo "MONOBOX_VERSION_CODE overrides the Asia/Shanghai timestamp (positive JS-safe integer)."
 }
 
 PRERELEASE=0
 WEBUI_DIR=
 ARCH_LIST=
+MODE=build
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --prerelease) PRERELEASE=1 ;;
+        --webui-only|--native-only|--check|--clean)
+            [ "$MODE" = build ] || { echo "Only one build mode may be selected" >&2; exit 1; }
+            MODE=${1#--}
+            ;;
         --arch)
             [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "--arch requires a value" >&2; exit 1; }
             ARCH_LIST="${ARCH_LIST:+$ARCH_LIST,}$2"
@@ -43,6 +50,10 @@ while [ "$#" -gt 0 ]; do
     esac
     shift
 done
+if [ "$MODE" != build ] && { [ "$PRERELEASE" -eq 1 ] || [ -n "$WEBUI_DIR" ]; }; then
+    echo "--prerelease and --webui-dir require the module build mode" >&2
+    exit 1
+fi
 
 ARCH_LIST=${ARCH_LIST:-arm64}
 case "$ARCH_LIST" in
@@ -66,24 +77,97 @@ for name in $(printf '%s' "$ARCH_LIST" | tr ',' ' '); do
         esac
     done
 done
+set +f
 [ -n "$TARGETS" ] || { echo "--arch requires at least one architecture" >&2; exit 1; }
 
-command -v node >/dev/null 2>&1 || { echo "Node.js is required to generate update manifests" >&2; exit 1; }
-if [ -n "$WEBUI_DIR" ]; then
-    [ -d "$WEBUI_DIR" ] && [ -s "$WEBUI_DIR/index.html" ] && [ -d "$WEBUI_DIR/_app" ] || {
-        echo "Invalid precompiled WebUI: $WEBUI_DIR" >&2
-        exit 1
-    }
-else
-    command -v pnpm >/dev/null 2>&1 || { echo "pnpm is required" >&2; exit 1; }
+# Keep the lock outside dist so clean cannot remove another build's lock.
+LOCK_DIR="$PROJECT_DIR/.build.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    echo "Build lock exists: $LOCK_DIR. Wait for the active build; remove it only if no build is running." >&2
+    exit 1
 fi
-command -v go >/dev/null 2>&1 || { echo "Go 1.24 or newer is required" >&2; exit 1; }
-command -v upx >/dev/null 2>&1 || { echo "UPX is required to compress the native controller" >&2; exit 1; }
+STAGE=
+cleanup() {
+    [ -z "$STAGE" ] || rm -rf "$STAGE"
+    rmdir "$LOCK_DIR"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 
-VERSION=$(awk -F= '/^version=/{print $2; exit}' module.prop)
-[ -n "$VERSION" ] || { echo "Missing module version" >&2; exit 1; }
-VERSION_CODE=${MONOBOX_VERSION_CODE-$(TZ=Asia/Shanghai date +%Y%m%d%H%M)}
-VERSION_CODE=$(node - "$VERSION_CODE" <<'NODE'
+if [ "$MODE" = clean ]; then
+    # Include generated outputs from the previous directory layout.
+    rm -rf "$DIST_DIR" "$PROJECT_DIR/webui/build" "$PROJECT_DIR/webui/.svelte-kit"
+    rm -f "$PROJECT_DIR"/MonoBox_*.zip "$PROJECT_DIR"/update-*.json "$PROJECT_DIR/update.json"
+    exit 0
+fi
+
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || { echo "$2" >&2; exit 1; }
+}
+case "$MODE" in
+    build)
+        require_command node "Node.js is required to generate update manifests"
+        require_command zip "zip is required to package the module"
+        if [ -n "$WEBUI_DIR" ]; then
+            [ -d "$WEBUI_DIR" ] && [ -s "$WEBUI_DIR/index.html" ] && [ -d "$WEBUI_DIR/_app" ] || {
+                echo "Invalid precompiled WebUI: $WEBUI_DIR" >&2
+                exit 1
+            }
+        else
+            require_command pnpm "pnpm is required"
+        fi
+        ;;
+    webui-only|check) require_command pnpm "pnpm is required" ;;
+esac
+case "$MODE" in
+    build|native-only)
+        require_command go "Go 1.24 or newer is required"
+        require_command upx "UPX is required to compress the native controller"
+        ;;
+    check)
+        require_command go "Go 1.24 or newer is required"
+        require_command node "Node.js is required to run WebUI tests"
+        ;;
+esac
+
+STAGE=$(mktemp -d)
+mkdir -p "$DIST_DIR"
+
+ensure_webui_dependencies() {
+    # Install once per dependency-input change, including across Make targets.
+    cksum webui/package.json webui/pnpm-lock.yaml webui/pnpm-workspace.yaml > "$STAGE/webui-deps"
+    if [ ! -f webui/node_modules/.modules.yaml ] ||
+        ! cmp -s "$STAGE/webui-deps" "$DIST_DIR/.cache/webui-deps"; then
+        pnpm --dir webui install --frozen-lockfile
+        mkdir -p "$DIST_DIR/.cache"
+        cp "$STAGE/webui-deps" "$DIST_DIR/.cache/webui-deps"
+    fi
+}
+
+build_webui() {
+    ensure_webui_dependencies
+    echo "[*] Building WebUI..."
+    pnpm --dir webui run build
+}
+
+if [ "$MODE" = check ]; then
+    sh -n build.sh
+    ensure_webui_dependencies
+    go test ./...
+    pnpm --dir webui run check
+    node --test webui/tests/*.test.mjs
+    exit 0
+fi
+if [ "$MODE" = webui-only ]; then
+    build_webui
+    exit 0
+fi
+
+if [ "$MODE" = build ]; then
+    VERSION=$(awk -F= '/^version=/{print $2; exit}' module.prop)
+    [ -n "$VERSION" ] || { echo "Missing module version" >&2; exit 1; }
+    VERSION_CODE=${MONOBOX_VERSION_CODE-$(TZ=Asia/Shanghai date +%Y%m%d%H%M)}
+    VERSION_CODE=$(node - "$VERSION_CODE" <<'NODE'
 const value = process.argv[2];
 const code = Number(value);
 if (value.length === 0 || /[^0-9]/.test(value) || !Number.isSafeInteger(code) || code <= 0) {
@@ -93,38 +177,36 @@ if (value.length === 0 || /[^0-9]/.test(value) || !Number.isSafeInteger(code) ||
 process.stdout.write(String(code));
 NODE
 )
-RELEASES_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY:-LufsX/mono-box}/releases"
-RELEASE_TAG=$VERSION
-UPDATE_BASE="$RELEASES_URL/latest/download"
-CHANGELOG_URL="$UPDATE_BASE/changelog.md"
-if [ "$PRERELEASE" -eq 1 ]; then
-    RELEASE_TAG=Prerelease
-    UPDATE_BASE="$RELEASES_URL/download/Prerelease"
-    CHANGELOG_URL="$UPDATE_BASE/prerelease-changelog.md"
-fi
+    RELEASES_URL="https://cors.isteed.cc/https://github.com/${GITHUB_REPOSITORY:-LufsX/mono-box}/releases"
+    RELEASE_TAG=$VERSION
+    UPDATE_BASE="$RELEASES_URL/latest/download"
+    CHANGELOG_URL="$UPDATE_BASE/changelog.md"
+    if [ "$PRERELEASE" -eq 1 ]; then
+        RELEASE_TAG=Prerelease
+        UPDATE_BASE="$RELEASES_URL/download/Prerelease"
+        CHANGELOG_URL="$UPDATE_BASE/prerelease-changelog.md"
+    fi
 
-STAGE=$(mktemp -d)
-cleanup() { rm -rf "$STAGE"; }
-trap cleanup EXIT
-trap 'exit 1' HUP INT TERM
-
-if [ -n "$WEBUI_DIR" ]; then
-    echo "[*] Reusing precompiled WebUI: $WEBUI_DIR"
-else
-    echo "[*] Building WebUI..."
-    pnpm --dir webui install
-    pnpm --dir webui run build
-    WEBUI_DIR=webui/build
+    if [ -n "$WEBUI_DIR" ]; then
+        echo "[*] Reusing precompiled WebUI: $WEBUI_DIR"
+        # Snapshot before replacing dist/webui: the input may already point there.
+        cp -R "$WEBUI_DIR/." "$STAGE/webroot"
+        rm -rf "$DIST_DIR/webui"
+        cp -R "$STAGE/webroot" "$DIST_DIR/webui"
+    else
+        build_webui
+        cp -R "$DIST_DIR/webui/." "$STAGE/webroot"
+    fi
+    cp -R META-INF "$STAGE/META-INF"
+    cp action.sh service.sh customize.sh uninstall.sh README.md README_zh.md icon.png "$STAGE/"
+    mkdir -p "$STAGE/box/scripts" "$STAGE/box/mihomo"
+    cp box/scripts/box.config box/scripts/box.service box/scripts/box.controller "$STAGE/box/scripts/"
+    cp box/mihomo/config.yaml "$STAGE/box/mihomo/"
 fi
-cp -R "$WEBUI_DIR/." "$STAGE/webroot"
-cp -R META-INF "$STAGE/META-INF"
-cp action.sh service.sh customize.sh uninstall.sh README.md README_zh.md icon.png "$STAGE/"
-mkdir -p "$STAGE/box/scripts" "$STAGE/bin" "$STAGE/box/mihomo"
-cp box/scripts/box.config box/scripts/box.service box/scripts/box.controller "$STAGE/box/scripts/"
-cp box/mihomo/config.yaml "$STAGE/box/mihomo/"
 
 # Static Linux ELF uses Android's kernel ABI without a libc/NDK dependency.
 # Runtime transport discovers Android DNS and loads Android system CA roots.
+mkdir -p "$DIST_DIR/bin"
 for target in $TARGETS; do
     abi=${target%:*}
     arch=${target#*:}
@@ -136,6 +218,8 @@ for target in $TARGETS; do
         -o "$STAGE/bin/monobox-$abi" ./cmd/monobox
     echo "[*] Compressing native controller for $abi with UPX..."
     upx --lzma "$STAGE/bin/monobox-$abi"
+    cp "$STAGE/bin/monobox-$abi" "$DIST_DIR/bin/monobox-$abi"
+    [ "$MODE" = build ] || continue
 
     ZIP_NAME="MonoBox_${VERSION}_${abi}.zip"
     UPDATE_NAME="update-${abi}.json"
@@ -143,12 +227,14 @@ for target in $TARGETS; do
     printf 'versionCode=%s\nupdateJson=%s\nmoduleAbi=%s\n' "$VERSION_CODE" "$UPDATE_BASE/$UPDATE_NAME" "$abi" >> "$STAGE/module.prop"
 
     echo "[*] Creating module: $ZIP_NAME..."
+    # Dependency signatures and manifests are build metadata, not module files.
+    rm -f "$STAGE/webui-deps" "$STAGE/update.json"
     (
         cd "$STAGE"
         zip -qr -X "$STAGE/module.zip" .
     )
-    mv -f "$STAGE/module.zip" "$PROJECT_DIR/$ZIP_NAME"
-    node - "$VERSION" "$VERSION_CODE" "$RELEASES_URL/download/$RELEASE_TAG/$ZIP_NAME" "$CHANGELOG_URL" > "$PROJECT_DIR/$UPDATE_NAME" <<'NODE'
+    mv -f "$STAGE/module.zip" "$DIST_DIR/$ZIP_NAME"
+    node - "$VERSION" "$VERSION_CODE" "$RELEASES_URL/download/$RELEASE_TAG/$ZIP_NAME" "$CHANGELOG_URL" > "$STAGE/update.json" <<'NODE'
 const [version, versionCode, zipUrl, changelog] = process.argv.slice(2);
 process.stdout.write(JSON.stringify({
     version,
@@ -157,8 +243,9 @@ process.stdout.write(JSON.stringify({
     changelog,
 }, null, 2) + "\n");
 NODE
+    mv -f "$STAGE/update.json" "$DIST_DIR/$UPDATE_NAME"
     if [ "$abi" = arm64-v8a ]; then
-        cp "$PROJECT_DIR/$UPDATE_NAME" "$PROJECT_DIR/update.json"
+        cp "$DIST_DIR/$UPDATE_NAME" "$DIST_DIR/update.json"
     fi
-    echo "[+] Done: $ZIP_NAME, $UPDATE_NAME"
+    echo "[+] Done: dist/$ZIP_NAME, dist/$UPDATE_NAME"
 done

@@ -1,5 +1,8 @@
 import adapter from "@sveltejs/adapter-static";
 import { relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const output = fileURLToPath(new URL("../dist/webui", import.meta.url));
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -14,10 +17,10 @@ const config = {
     },
   },
   kit: {
-    // adapter-auto only supports some environments, see https://svelte.dev/docs/kit/adapter-auto for a list.
-    // If your environment is not supported, or you settled on a specific environment, switch out the adapter.
-    // See https://svelte.dev/docs/kit/adapters for more information about adapters.
+    outDir: fileURLToPath(new URL("../dist/.svelte-kit", import.meta.url)),
     adapter: adapter({
+      pages: output,
+      assets: output,
       fallback: "index.html",
       strict: false,
     }),

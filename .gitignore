@@ -1,4 +1,6 @@
 # Output
+/dist/
+/.build.lock/
 /webui/.output
 /webui/.vercel
 /webui/.netlify
