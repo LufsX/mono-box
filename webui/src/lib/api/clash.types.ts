@@ -114,6 +114,10 @@ export interface BoxConfigValues {
   targetCellular: string;
   targetWifi: string;
   targetWifiList: string;
+  autoRecovery: boolean;
+  autoUpdateConfig: boolean;
+  configUpdateIntervalHours: number;
+  configUpdateWifiOnly: boolean;
 }
 
 export interface ClashVersionResponse {

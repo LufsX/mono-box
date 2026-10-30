@@ -20,6 +20,10 @@ export function createDefaultBoxConfigFormValues(): BoxConfigFormValues {
     targetCellular: "",
     targetWifi: "",
     targetWifiList: "",
+    autoRecovery: false,
+    autoUpdateConfig: false,
+    configUpdateIntervalHours: 24,
+    configUpdateWifiOnly: true,
   };
 }
 
@@ -41,6 +45,9 @@ export function quoteBoxConfigValue(value: string): string {
 }
 
 export function serializeBoxConfigFormValues(values: BoxConfigFormValues): Record<string, string> {
+  if (!Number.isInteger(values.configUpdateIntervalHours) || values.configUpdateIntervalHours < 1 || values.configUpdateIntervalHours > 168) {
+    throw new Error("更新间隔必须是 1 至 168 小时的整数");
+  }
   return {
     clash_api_port: values.clashApiPort.toString(),
     clash_api_secret: quoteBoxConfigValue(values.clashApiSecret),
@@ -52,6 +59,10 @@ export function serializeBoxConfigFormValues(values: BoxConfigFormValues): Recor
     target_cellular: quoteBoxConfigValue(values.targetCellular),
     target_wifi: quoteBoxConfigValue(values.targetWifi),
     target_wifi_list: quoteBoxConfigValue(values.targetWifiList),
+    auto_recovery: String(values.autoRecovery),
+    auto_update_config: String(values.autoUpdateConfig),
+    config_update_interval_hours: String(values.configUpdateIntervalHours),
+    config_update_wifi_only: String(values.configUpdateWifiOnly),
   };
 }
 

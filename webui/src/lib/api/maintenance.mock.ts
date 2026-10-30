@@ -1,6 +1,6 @@
 import type { AutomationSettings, AutomationState, DiagnosticCheck, DiagnosticReport } from "./maintenance";
-import { readBoxConfig, writeBoxConfig } from "./action.mock";
-import { readConfigValue, upsertConfigValue } from "./config-parser";
+import { readBoxConfig } from "./action.mock";
+import { readConfigValue } from "./config-parser";
 
 let nextRunAt = 0;
 let previousSettings: AutomationSettings | undefined;
@@ -36,22 +36,6 @@ const pause = () => new Promise<void>((resolve) => setTimeout(resolve, 250));
 
 export async function getAutomationState(): Promise<AutomationState> {
   await pause();
-  return snapshot();
-}
-
-export async function setAutomationSettings(value: AutomationSettings): Promise<AutomationState> {
-  await pause();
-  let content = await readBoxConfig();
-  const updates = {
-    auto_recovery: String(value.recoveryEnabled),
-    auto_update_config: String(value.updateEnabled),
-    config_update_interval_hours: String(value.updateIntervalHours),
-    config_update_wifi_only: String(value.updateWifiOnly),
-  };
-  for (const [key, setting] of Object.entries(updates)) {
-    content = upsertConfigValue(content, key, setting);
-  }
-  await writeBoxConfig(content);
   return snapshot();
 }
 

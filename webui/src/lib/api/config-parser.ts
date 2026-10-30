@@ -173,6 +173,10 @@ export function parseBoxConfig(content: string): BoxConfigValues {
     targetCellular: readConfigValue(content, "target_cellular"),
     targetWifi: readConfigValue(content, "target_wifi"),
     targetWifiList: readConfigValue(content, "target_wifi_list"),
+    autoRecovery: readConfigValue(content, "auto_recovery", "false") === "true",
+    autoUpdateConfig: readConfigValue(content, "auto_update_config", "false") === "true",
+    configUpdateIntervalHours: Number(readConfigValue(content, "config_update_interval_hours", "24")),
+    configUpdateWifiOnly: readConfigValue(content, "config_update_wifi_only", "true") === "true",
   };
 }
 

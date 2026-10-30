@@ -1,4 +1,4 @@
-import { runNativeCommand, toBase64Utf8 } from "./native";
+import { runNativeCommand } from "./native";
 import { buildExecError } from "./error-utils";
 import * as mock from "./maintenance.mock";
 
@@ -40,10 +40,6 @@ export interface AutomationState {
   };
 }
 
-export function defaultAutomationSettings(): AutomationSettings {
-  return { recoveryEnabled: false, updateEnabled: false, updateIntervalHours: 24, updateWifiOnly: true };
-}
-
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("维护服务返回的数据格式无效");
   return value as Record<string, unknown>;
@@ -59,7 +55,7 @@ function number(value: unknown): number {
   return value;
 }
 
-export function validateAutomationSettings(value: AutomationSettings): AutomationSettings {
+function validateAutomationSettings(value: AutomationSettings): AutomationSettings {
   if (typeof value.recoveryEnabled !== "boolean" || typeof value.updateEnabled !== "boolean" || typeof value.updateWifiOnly !== "boolean") {
     throw new Error("自动化开关设置无效");
   }
@@ -138,13 +134,5 @@ export async function getAutomationState(): Promise<AutomationState> {
   if (import.meta.env.MODE !== "production") return mock.getAutomationState();
   const result = await runNativeCommand(["automation", "get"]);
   if (result.errno !== 0) throw buildExecError("读取自动化设置", result);
-  return parseAutomationState(parseJson(result.stdout));
-}
-
-export async function setAutomationSettings(value: AutomationSettings): Promise<AutomationState> {
-  const settings = validateAutomationSettings(value);
-  if (import.meta.env.MODE !== "production") return mock.setAutomationSettings(settings);
-  const result = await runNativeCommand(["automation", "set", toBase64Utf8(JSON.stringify(settings))]);
-  if (result.errno !== 0) throw buildExecError("保存自动化设置", result);
   return parseAutomationState(parseJson(result.stdout));
 }

@@ -6,6 +6,7 @@
   import type { BoxConfigFormValues } from "$lib/api";
   import CheckBox from "$lib/components/common/CheckBox.svelte";
   import Select from "$lib/components/common/Select.svelte";
+  import AutomationSettings from "./AutomationSettings.svelte";
 
   type ProxyMode = "rule" | "global" | "direct";
   type ControlMode = "disable" | "switch" | "tun" | "selector" | "mode";
@@ -467,6 +468,10 @@
       </div>
     {/if}
   </div>
+
+  <div class="h-px bg-slate-200 dark:bg-zinc-800"></div>
+
+  <AutomationSettings bind:boxConfig disabled={boxConfigLoading || boxConfigSaving || boxConfigLoadFailed} />
 
   <div class="flex gap-3 pt-2">
     <button
