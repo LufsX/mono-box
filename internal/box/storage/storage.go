@@ -67,14 +67,21 @@ func openStorageDir(path string, create bool) (*storageDir, error) {
 }
 
 func (d *storageDir) child(name string) (*storageDir, error) {
+	return d.openChild(name, true)
+}
+
+func (d *storageDir) openChild(name string, create bool) (*storageDir, error) {
 	flags := syscall.O_RDONLY | syscall.O_DIRECTORY | syscall.O_NOFOLLOW | syscall.O_CLOEXEC
 	fd, err := syscall.Openat(int(d.Fd()), name, flags, 0)
-	if errors.Is(err, syscall.ENOENT) {
+	if errors.Is(err, syscall.ENOENT) && create {
 		if mkdirErr := syscall.Mkdirat(int(d.Fd()), name, 0700); mkdirErr == nil || errors.Is(mkdirErr, syscall.EEXIST) {
 			fd, err = syscall.Openat(int(d.Fd()), name, flags, 0)
 		}
 	}
 	if err != nil {
+		if errors.Is(err, syscall.ENOENT) {
+			return nil, os.ErrNotExist
+		}
 		return nil, errors.New("unsafe or inaccessible storage directory")
 	}
 	return &storageDir{os.NewFile(uintptr(fd), name)}, nil
@@ -154,21 +161,11 @@ func (d *storageDir) remove(name string) error {
 }
 
 func (r *Runtime) storageLock() (func(), error) {
-	// This is the same inode and flock protocol used by Service/start snapshots.
-	run, err := openStorageDir(filepath.Join(r.Root, "run"), true)
+	lock, err := base.AcquireServiceLock(r.RunDir(), base.ServiceLockTimeout)
 	if err != nil {
 		return nil, err
 	}
-	defer run.Close()
-	f, err := run.open("service.lock", syscall.O_CREAT|syscall.O_RDWR)
-	if err != nil {
-		return nil, err
-	}
-	if err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		f.Close()
-		return nil, errors.New("cannot lock storage")
-	}
-	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close() }, nil
+	return func() { lock.Close() }, nil
 }
 
 // Storage dispatches the config, module and profiles CLI command families.
@@ -245,11 +242,15 @@ func (r *Runtime) Storage(args []string) error {
 	if command == "profiles download" || command == "profiles update" {
 		return r.storageDownloadProfile(command, name, source)
 	}
-	unlock, err := r.storageLock()
-	if err != nil {
-		return err
+	// Single-file reads see a complete atomic replacement without a lifecycle
+	// lock. Profile inventories still need service.lock for a coherent view.
+	if command != "config read" && command != "module info" {
+		unlock, err := r.storageLock()
+		if err != nil {
+			return err
+		}
+		defer unlock()
 	}
-	defer unlock()
 	switch command {
 	case "config read", "config write":
 		dir, err := openStorageDir(filepath.Join(r.Root, "scripts"), command == "config write")
@@ -603,24 +604,34 @@ func (r *Runtime) installStoredProfileContext(ctx context.Context, s *profileSto
 }
 
 func (r *Runtime) installStoredProfileGuarded(ctx context.Context, s *profileStorage, name string, data []byte, required bool, guard base.CommitGuard) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	f, err := os.CreateTemp(s.profiles.path(""), ".monobox-*.yaml")
 	if err != nil {
 		return errors.New("cannot stage profile")
 	}
 	tempPath := f.Name()
 	defer os.Remove(tempPath)
+	defer f.Close()
 	if err = f.Chmod(0600); err == nil {
 		_, err = f.Write(data)
 	}
-	if err == nil {
-		err = f.Sync()
-	}
-	closeErr := f.Close()
-	if err != nil || closeErr != nil {
+	if err != nil {
 		return errors.New("cannot stage profile")
 	}
 	if err := r.validateStoredProfileContext(ctx, s, s.profiles, filepath.Base(tempPath), required); err != nil {
 		return err
+	}
+	// Invalid or cancelled candidates never need a durable temporary copy.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return errors.New("cannot sync staged profile")
+	}
+	if err := f.Close(); err != nil {
+		return errors.New("cannot close staged profile")
 	}
 	if err := s.profiles.check(name); err != nil {
 		return err

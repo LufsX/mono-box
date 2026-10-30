@@ -12,8 +12,9 @@ import (
 
 const configName = "box.config"
 
-// All callers hold config.lock. Directory descriptors pin reads and replacements
-// even if an ancestor is renamed during the operation.
+// Writers hold config.lock. Idle readers may load an atomic config snapshot
+// without creating a lock; read rechecks for a concurrent first writer.
+// Directory descriptors pin reads and replacements against ancestor renames.
 func (r *Runtime) loadSettings() (Settings, error) {
 	dir, err := base.OpenDirectory(filepath.Join(r.Root, "scripts"), false)
 	if errors.Is(err, os.ErrNotExist) {

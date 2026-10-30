@@ -22,29 +22,55 @@ func (r *Runtime) Request(args []string, execute func([]string) error) error {
 	if len(args) == 0 {
 		return errors.New("missing request command")
 	}
-	run, err := openStorageDir(r.RunDir(), true)
+	var chunk []byte
+	switch args[0] {
+	case "begin":
+		if len(args) != 1 {
+			return errors.New("begin takes no arguments")
+		}
+	case "append", "run", "abort":
+		if len(args) < 2 || !validRequestToken(args[1]) {
+			return errors.New("invalid request token")
+		}
+		if args[0] == "append" {
+			if len(args) != 3 || len(args[2]) > requestChunkLimit {
+				return errors.New("invalid request chunk")
+			}
+			var err error
+			chunk, err = base64.StdEncoding.Strict().DecodeString(args[2])
+			if err != nil {
+				return errors.New("invalid request base64")
+			}
+		} else if len(args) != 2 {
+			return errors.New("request command takes one token")
+		}
+	default:
+		return errors.New("unknown request command")
+	}
+	create := args[0] == "begin"
+	run, err := openStorageDir(r.RunDir(), create)
+	if errors.Is(err, os.ErrNotExist) && args[0] == "abort" {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	defer run.Close()
-	dir, err := run.child("requests")
+	dir, err := run.openChild("requests", create)
+	if errors.Is(err, os.ErrNotExist) && args[0] == "abort" {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	defer dir.Close()
-	lock, err := dir.open("lock", syscall.O_CREAT|syscall.O_RDWR)
-	if err != nil {
+	// The persistent directory inode serializes staging without an empty
+	// requests/lock file. Never remove or replace the directory while in use.
+	if err = syscall.Flock(int(dir.Fd()), syscall.LOCK_EX); err != nil {
 		return err
 	}
-	defer lock.Close()
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
-		return err
-	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	defer syscall.Flock(int(dir.Fd()), syscall.LOCK_UN)
 	if args[0] == "begin" {
-		if len(args) != 1 {
-			return errors.New("begin takes no arguments")
-		}
 		entries, err := os.ReadDir(dir.path("."))
 		if err != nil {
 			return err
@@ -79,6 +105,7 @@ func (r *Runtime) Request(args []string, execute func([]string) error) error {
 			return err
 		}
 		if err = f.Close(); err != nil {
+			_ = dir.remove(token)
 			return err
 		}
 		if _, err = fmt.Fprintln(r.Out, token); err != nil {
@@ -87,19 +114,9 @@ func (r *Runtime) Request(args []string, execute func([]string) error) error {
 		}
 		return nil
 	}
-	if len(args) < 2 || !validRequestToken(args[1]) {
-		return errors.New("invalid request token")
-	}
 	token := args[1]
 	switch args[0] {
 	case "append":
-		if len(args) != 3 || len(args[2]) > requestChunkLimit {
-			return errors.New("invalid request chunk")
-		}
-		data, err := base64.StdEncoding.Strict().DecodeString(args[2])
-		if err != nil {
-			return errors.New("invalid request base64")
-		}
 		f, err := dir.open(token, syscall.O_WRONLY|syscall.O_APPEND)
 		if err != nil {
 			return err
@@ -109,20 +126,14 @@ func (r *Runtime) Request(args []string, execute func([]string) error) error {
 		if err != nil {
 			return err
 		}
-		if info.Size()+int64(len(data)) > requestLimit {
+		if info.Size()+int64(len(chunk)) > requestLimit {
 			return errors.New("request exceeds 16 MiB")
 		}
-		_, err = f.Write(data)
+		_, err = f.Write(chunk)
 		return err
 	case "abort":
-		if len(args) != 2 {
-			return errors.New("abort takes one token")
-		}
 		return dir.remove(token)
 	case "run":
-		if len(args) != 2 {
-			return errors.New("run takes one token")
-		}
 		data, err := dir.read(token, requestLimit)
 		if err != nil {
 			return err
@@ -142,7 +153,7 @@ func (r *Runtime) Request(args []string, execute func([]string) error) error {
 			return errors.New("request executor unavailable")
 		}
 		// Release staging lock before entering service/config locks.
-		if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		if err = syscall.Flock(int(dir.Fd()), syscall.LOCK_UN); err != nil {
 			return err
 		}
 		return execute(command)

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/LufsX/mono-box/internal/box/base"
 )
 
 func controllerTestDeps(t *testing.T) controllerDeps {
@@ -85,13 +87,10 @@ func TestPolicyRestoresCellularAcrossWifiEventsAndSSID(t *testing.T) {
 			if current != baseline {
 				t.Fatalf("baseline overwritten: got %q want %q", current, baseline)
 			}
-			last := ".lastClashMode"
-			if policy == "selector" {
-				last = ".lastOutbound"
-			}
-			saved, err := os.ReadFile(filepath.Join(r.RunDir(), last))
-			if err != nil || string(saved) != baseline {
-				t.Fatalf("saved %q: %v", saved, err)
+			path = filepath.Join(r.RunDir(), ".policy-"+policy+".json")
+			var saved savedPolicy
+			if err := base.ReadPrivateJSON(path, &saved, 16<<10); err != nil || saved.Baseline != baseline || saved.WiFi {
+				t.Fatalf("saved %+v: %v", saved, err)
 			}
 			if writes != 5 {
 				t.Fatal(writes)
@@ -102,9 +101,8 @@ func TestPolicyRestoresCellularAcrossWifiEventsAndSSID(t *testing.T) {
 			if err := r.controller(context.Background(), event, deps); err != nil {
 				t.Fatal(err)
 			}
-			saved, _ = os.ReadFile(filepath.Join(r.RunDir(), last))
-			if string(saved) != "rule" {
-				t.Fatalf("new baseline %q", saved)
+			if err := base.ReadPrivateJSON(path, &saved, 16<<10); err != nil || saved.Baseline != "rule" || !saved.WiFi {
+				t.Fatalf("new baseline %+v: %v", saved, err)
 			}
 		})
 	}

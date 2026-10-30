@@ -46,6 +46,12 @@ func (r *Runtime) finalize(change func(*record) error) {
 }
 
 func (r *Runtime) resumeInterrupted(update bool, now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), finalizationTimeout)
+	defer cancel()
+	rec, err := r.snapshot(ctx)
+	if err != nil || (update && rec.Update.State != "updating") || (!update && rec.Recovery.State != "recovering") {
+		return
+	}
 	r.finalize(func(rec *record) error {
 		if update && rec.Update.State == "updating" {
 			rec.Update.State = "interrupted"

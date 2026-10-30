@@ -35,32 +35,52 @@ func (r *Runtime) locked(ctx context.Context, change func(*record) error) (State
 		return State{}, errors.New("automation configuration lock unavailable")
 	}
 	defer lock.Close()
-	rec := record{State: State{Settings: defaultSettings(), Recovery: Recovery{State: "disabled"}, Update: Update{State: "disabled"}}}
-	statusPath := filepath.Join(r.RunDir(), "automation-status.json")
-	if err := base.ReadPrivateJSON(statusPath, &rec, stateLimit); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return State{}, errors.New("automation status unavailable or invalid")
-	}
-	before := rec
-	rec.Settings, err = r.loadSettings()
+	rec, err := r.recordLocked(change)
+	return rec.visibleState(), err
+}
+
+// Reconciliation must remain durable: even a Get observing a direct config
+// edit invalidates active tasks, including disable/enable ABA between polls.
+func (r *Runtime) recordLocked(change func(*record) error) (record, error) {
+	rec, before, _, err := r.readRecord()
 	if err != nil {
-		return State{}, err
-	}
-	if rec.Recovery.State == "" || rec.Update.State == "" || rec.Recovery.Attempts < 0 || rec.Recovery.Attempts > recoveryLimit {
-		return State{}, errors.New("invalid automation status")
-	}
-	if before.Settings != rec.Settings {
-		reconcileSettings(&rec, before.Settings, rec.Settings, time.Now())
+		return record{}, err
 	}
 	if change != nil {
 		if err := change(&rec); err != nil {
-			return State{}, err
+			return record{}, err
 		}
 	}
 	if before != rec {
-		if err := base.WritePrivateJSON(statusPath, rec, stateLimit); err != nil {
-			return State{}, errors.New("cannot save automation status")
+		if err := base.WritePrivateJSON(filepath.Join(r.RunDir(), "automation-status.json"), rec, stateLimit); err != nil {
+			return record{}, errors.New("cannot save automation status")
 		}
 	}
+	return rec, nil
+}
+
+func (r *Runtime) readRecord() (record, record, bool, error) {
+	rec := record{State: State{Settings: defaultSettings(), Recovery: Recovery{State: "disabled"}, Update: Update{State: "disabled"}}}
+	err := base.ReadPrivateJSON(filepath.Join(r.RunDir(), "automation-status.json"), &rec, stateLimit)
+	exists := err == nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return record{}, record{}, exists, errors.New("automation status unavailable or invalid")
+	}
+	before := rec
+	settings, err := r.loadSettings()
+	if err != nil {
+		return record{}, record{}, exists, err
+	}
+	if rec.Recovery.State == "" || rec.Update.State == "" || rec.Recovery.Attempts < 0 || rec.Recovery.Attempts > recoveryLimit {
+		return record{}, record{}, exists, errors.New("invalid automation status")
+	}
+	if before.Settings != settings {
+		reconcileSettings(&rec, before.Settings, settings, time.Now())
+	}
+	return rec, before, exists, nil
+}
+
+func (rec record) visibleState() State {
 	if !rec.Settings.RecoveryEnabled {
 		rec.Recovery.State = "disabled"
 		rec.Recovery.NextAttemptAt = 0
@@ -69,13 +89,43 @@ func (r *Runtime) locked(ctx context.Context, change func(*record) error) (State
 		rec.Update.State = "disabled"
 		rec.Update.NextRunAt = 0
 	}
-	return rec.State, nil
+	return rec.State
 }
 
 func (r *Runtime) Get() (State, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return r.locked(ctx, nil)
+	rec, err := r.read(ctx)
+	return rec.visibleState(), err
+}
+
+// Get and idle worker snapshots share the no-state fast path. Existing state
+// always reconciles under config.lock, even when both features are disabled.
+func (r *Runtime) read(ctx context.Context) (record, error) {
+	lock, err := base.AcquireExistingConfigLock(ctx, r.RunDir())
+	if errors.Is(err, os.ErrNotExist) {
+		// Writers create config.lock before changing either file and never
+		// unlink it. If it appeared during the read, discard this snapshot.
+		rec, _, exists, readErr := r.readRecord()
+		lock, err = base.AcquireExistingConfigLock(ctx, r.RunDir())
+		if errors.Is(err, os.ErrNotExist) {
+			if readErr != nil {
+				return record{}, readErr
+			}
+			if !exists && !rec.Settings.RecoveryEnabled && !rec.Settings.UpdateEnabled {
+				return rec, nil
+			}
+			lock, err = base.AcquireConfigLock(ctx, r.RunDir())
+		}
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return record{}, ctx.Err()
+		}
+		return record{}, errors.New("automation configuration lock unavailable")
+	}
+	defer lock.Close()
+	return r.recordLocked(nil)
 }
 
 func (r *Runtime) set(settings Settings) (State, error) {

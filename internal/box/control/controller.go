@@ -212,21 +212,33 @@ func (r *Runtime) bootController(deps controllerDeps, plan *controllerBootPlan) 
 }
 
 func (r *Runtime) controllerLock(nonblock bool) (*os.File, error) {
-	return r.namedControllerLock("controller.lock", nonblock)
-}
-func (r *Runtime) namedControllerLock(name string, nonblock bool) (*os.File, error) {
-	if err := os.MkdirAll(r.RunDir(), 0700); err != nil {
-		return nil, err
-	}
-	f, err := os.OpenFile(filepath.Join(r.RunDir(), name), os.O_CREATE|os.O_RDWR, 0600)
+	// run/ is persistent. Lock its inode instead of creating controller.lock;
+	// service/config/download/watcher keep their independent file locks.
+	dir, err := base.OpenDirectory(r.RunDir(), true)
 	if err != nil {
 		return nil, err
 	}
+	return flockController(dir, nonblock)
+}
+func (r *Runtime) namedControllerLock(name string, nonblock bool) (*os.File, error) {
+	dir, err := base.OpenDirectory(r.RunDir(), true)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	f, err := base.OpenRegularAt(dir, name, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		return nil, err
+	}
+	return flockController(f, nonblock)
+}
+
+func flockController(f *os.File, nonblock bool) (*os.File, error) {
 	op := syscall.LOCK_EX
 	if nonblock {
 		op |= syscall.LOCK_NB
 	}
-	if err = syscall.Flock(int(f.Fd()), op); err != nil {
+	if err := syscall.Flock(int(f.Fd()), op); err != nil {
 		f.Close()
 		return nil, err
 	}

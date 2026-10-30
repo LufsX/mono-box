@@ -125,40 +125,41 @@ func (r *Runtime) applyNetwork(ctx context.Context, deps controllerDeps) error {
 	}
 }
 
-// The marker lasts for the entire Wi-Fi period, including SSID changes.
-// It is committed before the API mutation, so retries cannot replace the
-// cellular baseline even when an API request times out after being applied.
+type savedPolicy struct {
+	Baseline string `json:"baseline"`
+	WiFi     bool   `json:"wifi"`
+}
+
+// Baseline and Wi-Fi ownership are committed together before the API mutation.
+// Retries and SSID changes must retain the cellular value even when a request
+// times out after being applied. Callers hold the controller lock.
 func (r *Runtime) applySavedPolicy(wifi bool, target string) error {
 	policy := r.Config.CtrMode
-	lastName := ".lastClashMode"
+	name := ".policy-mode.json"
 	if policy == "selector" {
 		if r.Config.SelectOutbound == "" {
 			return errors.New("selector group is empty")
 		}
-		lastName = ".lastOutbound"
+		name = ".policy-selector.json"
 	}
-	last := filepath.Join(r.RunDir(), lastName)
-	marker := filepath.Join(r.RunDir(), ".policy-wifi-"+policy)
+	path := filepath.Join(r.RunDir(), name)
+	var saved savedPolicy
+	if err := base.ReadPrivateJSON(path, &saved, 16<<10); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if !wifi && target == "last" {
-		data, err := os.ReadFile(last)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		target = strings.TrimSpace(string(data))
+		target = saved.Baseline
 	}
 	if target == "" {
 		if !wifi {
-			return removePolicyMarker(marker)
+			return saved.endWiFi(path)
 		}
 		return nil
 	}
 	if policy == "mode" && !validMode(target) {
 		return fmt.Errorf("invalid Clash mode %q", target)
 	}
-	if wifi && !base.Exists(marker) {
+	if wifi && !saved.WiFi {
 		var current string
 		var err error
 		if policy == "mode" {
@@ -169,10 +170,8 @@ func (r *Runtime) applySavedPolicy(wifi bool, target string) error {
 		if err != nil {
 			return err
 		}
-		if err = base.AtomicWrite(last, []byte(current), 0600); err != nil {
-			return err
-		}
-		if err = base.AtomicWrite(marker, []byte("wifi"), 0600); err != nil {
+		saved = savedPolicy{Baseline: current, WiFi: true}
+		if err = base.WritePrivateJSON(path, saved, 16<<10); err != nil {
 			return err
 		}
 	}
@@ -186,15 +185,15 @@ func (r *Runtime) applySavedPolicy(wifi bool, target string) error {
 		return err
 	}
 	if !wifi {
-		return removePolicyMarker(marker)
+		return saved.endWiFi(path)
 	}
 	return nil
 }
 
-func removePolicyMarker(path string) error {
-	err := os.Remove(path)
-	if errors.Is(err, os.ErrNotExist) {
+func (s savedPolicy) endWiFi(path string) error {
+	if !s.WiFi {
 		return nil
 	}
-	return err
+	s.WiFi = false
+	return base.WritePrivateJSON(path, s, 16<<10)
 }

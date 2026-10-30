@@ -59,9 +59,7 @@ func (r *Runtime) run(ctx context.Context, deps workerDeps) {
 }
 
 func (r *Runtime) snapshot(ctx context.Context) (record, error) {
-	var rec record
-	_, err := r.locked(ctx, func(current *record) error { rec = *current; return nil })
-	return rec, err
+	return r.read(ctx)
 }
 
 func (r *Runtime) moduleAvailable() bool {
