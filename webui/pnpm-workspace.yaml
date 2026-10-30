@@ -3,3 +3,8 @@ minimumReleaseAgeExclude:
 onlyBuiltDependencies:
   - esbuild
   - '@tailwindcss/oxide'
+globalShims:
+  pnpm: auto
+  deno: auto
+  node: auto
+  bun: auto
